@@ -16,11 +16,15 @@ limitations under the License.
 package apis
 
 import (
+	"github.com/awslabs/operatorpkg/object"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"sigs.k8s.io/karpenter/pkg/apis"
+
+	"github.com/cloudpilot-ai/karpenter-provider-alicloud/config"
 )
 
 var (
 	Group              = "karpenter.k8s.alibabacloud"
 	CompatibilityGroup = "compatibility." + Group
-	CRDs               = apis.CRDs // object.Unmarshal[apiextensionsv1.CustomResourceDefinition](crds.ECSNodeClassCRD)
+	CRDs               = append(apis.CRDs, object.Unmarshal[apiextensionsv1.CustomResourceDefinition](config.ECSNodeClassCRD))
 )

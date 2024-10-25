@@ -13,6 +13,8 @@ require (
 	github.com/awslabs/operatorpkg v0.0.0-20240805231134-67d0acfb6306
 	github.com/cloudpilot-ai/priceserver v0.0.0-20241011010411-15ac0e19a857
 	github.com/mitchellh/hashstructure/v2 v2.0.2
+	github.com/onsi/ginkgo/v2 v2.20.0
+	github.com/onsi/gomega v1.34.1
 	github.com/patrickmn/go-cache v2.1.0+incompatible
 	github.com/samber/lo v1.47.0
 	github.com/stretchr/testify v1.9.0
@@ -28,8 +30,12 @@ require (
 )
 
 require (
+	github.com/Pallinder/go-randomdata v1.2.0 // indirect
+	github.com/avast/retry-go v3.0.0+incompatible // indirect
 	github.com/evanphx/json-patch v5.7.0+incompatible // indirect
-	github.com/onsi/ginkgo/v2 v2.20.0 // indirect
+	github.com/go-task/slim-sprig/v3 v3.0.0 // indirect
+	github.com/google/pprof v0.0.0-20240727154555-813a5fbdbec8 // indirect
+	golang.org/x/tools v0.24.0 // indirect
 	google.golang.org/genproto v0.0.0-20231009173412-8bfb1ae86b6c // indirect
 )
 
@@ -69,7 +75,7 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.18.0 // indirect
 	github.com/hashicorp/golang-lru v1.0.2 // indirect
-	github.com/imdario/mergo v0.3.16 // indirect
+	github.com/imdario/mergo v0.3.16
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
@@ -110,7 +116,7 @@ require (
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	k8s.io/apiextensions-apiserver v0.30.3 // indirect
+	k8s.io/apiextensions-apiserver v0.30.3
 	k8s.io/cloud-provider v0.30.3 // indirect
 	k8s.io/component-base v0.30.3 // indirect
 	k8s.io/csi-translation-lib v0.30.3 // indirect

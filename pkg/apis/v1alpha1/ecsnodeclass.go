@@ -216,7 +216,7 @@ type SystemDisk struct {
 	//   * If you set Category to cloud: 20 to 500.
 	//   * If you set Category to other disk categories: 20 to 2048.
 	//
-	// +kubebuilder:validation:XValidation:message="size invalid",rule="self >= 20"
+	// +kubebuilder:validation:XValidation:message="size invalid",rule="self >= 20 && self <= 2048"
 	// +optional
 	Size *int32 `json:"size,omitempty"`
 	// The performance level of the ESSD to use as the system disk. Default value: PL0.
