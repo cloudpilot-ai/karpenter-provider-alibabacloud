@@ -73,7 +73,7 @@ type ECSNodeClassSpec struct {
 	// +kubebuilder:validation:XValidation:message="tag contains a restricted tag matching kubernetes.io/cluster/",rule="self.all(k, !k.startsWith('kubernetes.io/cluster') )"
 	// +kubebuilder:validation:XValidation:message="tag contains a restricted tag matching karpenter.sh/nodepool",rule="self.all(k, k != 'karpenter.sh/nodepool')"
 	// +kubebuilder:validation:XValidation:message="tag contains a restricted tag matching karpenter.sh/nodeclaim",rule="self.all(k, k !='karpenter.sh/nodeclaim')"
-	// +kubebuilder:validation:XValidation:message="tag contains a restricted tag matching karpenter.k8s.alibabacloud/ecsnodeclass",rule="self.all(k, k !='karpenter.k8s.alibabacloud/ecsnodeclass')"
+	// +kubebuilder:validation:XValidation:message="tag contains a restricted tag matching karpenter.k8s.alibabacloud/ecsnodeclass",rule="self.all(k, k !='karpenter.k8s.alicloud/ecsnodeclass')"
 	// +optional
 	Tags map[string]string `json:"tags,omitempty"`
 }
@@ -114,7 +114,6 @@ type SecurityGroupSelectorTerm struct {
 // If multiple fields are used for selection, the requirements are ANDed.
 type ImageSelectorTerm struct {
 	// Alias specifies which ACK image to select.
-	// Each alias consists of a family and an image version, specified as "family@version".
 	// Valid families include: AlibabaCloudLinux3,AlibabaCloudLinux2
 	// Currently only supports version pinning to the latest image release, with that images version format (ex: "aliyun3@latest").
 	// Setting the version to latest will result in drift when a new Image is released. This is **not** recommended for production environments.
@@ -208,7 +207,7 @@ type SystemDisk struct {
 	//   * If you set Category to cloud: 20 to 500.
 	//   * If you set Category to other disk categories: 20 to 2048.
 	//
-	// +kubebuilder:validation:XValidation:message="size invalid",rule="self >= 20"
+	// +kubebuilder:validation:XValidation:message="size invalid",rule="self >= 20 && self <= 2048"
 	// +optional
 	Size *int32 `json:"size,omitempty"`
 	// The name of the system disk.
