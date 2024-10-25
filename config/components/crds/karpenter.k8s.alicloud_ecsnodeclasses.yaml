@@ -9,526 +9,495 @@ spec:
   group: karpenter.k8s.alicloud
   names:
     categories:
-    - karpenter
+      - karpenter
     kind: ECSNodeClass
     listKind: ECSNodeClassList
     plural: ecsnodeclasses
     shortNames:
-    - ecsnc
-    - ecsncs
+      - ecsnc
+      - ecsncs
     singular: ecsnodeclass
   scope: Cluster
   versions:
-  - name: v1alpha1
-    schema:
-      openAPIV3Schema:
-        description: ECSNodeClass is the Schema for the ECSNodeClass API
-        properties:
-          apiVersion:
-            description: |-
-              APIVersion defines the versioned schema of this representation of an object.
-              Servers should convert recognized schemas to the latest internal value, and
-              may reject unrecognized values.
-              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
-            type: string
-          kind:
-            description: |-
-              Kind is a string value representing the REST resource this object represents.
-              Servers may infer this from the endpoint the client submits requests to.
-              Cannot be updated.
-              In CamelCase.
-              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
-            type: string
-          metadata:
-            type: object
-          spec:
-            description: |-
-              ECSNodeClassSpec is the top level specification for the AlibabaCloud Karpenter Provider.
-              This will contain configuration necessary to launch instances in AliCloud.
-            properties:
-              imageSelectorTerms:
-                description: ImageSelectorTerms is a list of or image selector terms.
-                  The terms are ORed.
-                items:
+    - name: v1alpha1
+      schema:
+        openAPIV3Schema:
+          description: ECSNodeClass is the Schema for the ECSNodeClass API
+          properties:
+            apiVersion:
+              description: |-
+                APIVersion defines the versioned schema of this representation of an object.
+                Servers should convert recognized schemas to the latest internal value, and
+                may reject unrecognized values.
+                More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+              type: string
+            kind:
+              description: |-
+                Kind is a string value representing the REST resource this object represents.
+                Servers may infer this from the endpoint the client submits requests to.
+                Cannot be updated.
+                In CamelCase.
+                More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+              type: string
+            metadata:
+              type: object
+            spec:
+              description: |-
+                ECSNodeClassSpec is the top level specification for the AlibabaCloud Karpenter Provider.
+                This will contain configuration necessary to launch instances in AliCloud.
+              properties:
+                imageSelectorTerms:
+                  description: ImageSelectorTerms is a list of or image selector terms. The terms are ORed.
+                  items:
+                    description: |-
+                      ImageSelectorTerm defines selection logic for an image used by Karpenter to launch nodes.
+                      If multiple fields are used for selection, the requirements are ANDed.
+                    properties:
+                      alias:
+                        description: |-
+                          Alias specifies which ACK image to select.
+                          Valid families include: AlibabaCloudLinux3,AlibabaCloudLinux2
+                          Currently only supports version pinning to the latest image release, with that images version format (ex: "aliyun3@latest").
+                          Setting the version to latest will result in drift when a new Image is released. This is **not** recommended for production environments.
+                        maxLength: 30
+                        type: string
+                        x-kubernetes-validations:
+                          - message: '''alias'' is improperly formatted, must match the format ''family'''
+                            rule: self.matches('^[a-zA-Z0-9]*$')
+                          - message: 'family is not supported, must be one of the following: ''AlibabaCloudLinux3,AlibabaCloudLinux2'''
+                            rule: self.find('^[^@]+') in ['AlibabaCloudLinux3', 'AlibabaCloudLinux2']
+                      id:
+                        description: ID is the image id in ECS
+                        type: string
+                    type: object
+                  maxItems: 30
+                  minItems: 1
+                  type: array
+                  x-kubernetes-validations:
+                    - message: expected at least one, got none, ['id', 'alias']
+                      rule: self.all(x, has(x.id) || has(x.alias))
+                    - message: '''id'' is mutually exclusive, cannot be set with a combination of other fields in imageSelectorTerms'
+                      rule: '!self.exists(x, has(x.id) && (has(x.alias)))'
+                    - message: '''alias'' is mutually exclusive, cannot be set with a combination of other fields in imageSelectorTerms'
+                      rule: '!self.exists(x, has(x.alias) && (has(x.id)))'
+                    - message: '''alias'' is mutually exclusive, cannot be set with a combination of other imageSelectorTerms'
+                      rule: '!(self.exists(x, has(x.alias)) && self.size() != 1)'
+                kubeletConfiguration:
                   description: |-
-                    ImageSelectorTerm defines selection logic for an image used by Karpenter to launch nodes.
-                    If multiple fields are used for selection, the requirements are ANDed.
+                    KubeletConfiguration defines args to be used when configuring kubelet on provisioned nodes.
+                    They are a vswitch of the upstream types, recognizing not all options may be supported.
+                    Wherever possible, the types and names should reflect the upstream kubelet types.
                   properties:
-                    alias:
+                    clusterDNS:
                       description: |-
-                        Alias specifies which ACK image to select.
-                        Each alias consists of a family and an image version, specified as "family@version".
-                        Valid families include: AlibabaCloudLinux3,AlibabaCloudLinux2
-                        Currently only supports version pinning to the latest image release, with that images version format (ex: "aliyun3@latest").
-                        Setting the version to latest will result in drift when a new Image is released. This is **not** recommended for production environments.
-                      maxLength: 30
-                      type: string
-                      x-kubernetes-validations:
-                      - message: '''alias'' is improperly formatted, must match the
-                          format ''family'''
-                        rule: self.matches('^[a-zA-Z0-9]*$')
-                      - message: 'family is not supported, must be one of the following:
-                          ''AlibabaCloudLinux3,AlibabaCloudLinux2'''
-                        rule: self.find('^[^@]+') in ['AlibabaCloudLinux3', 'AlibabaCloudLinux2']
-                    id:
-                      description: ID is the image id in ECS
-                      type: string
-                  type: object
-                maxItems: 30
-                minItems: 1
-                type: array
-                x-kubernetes-validations:
-                - message: expected at least one, got none, ['id', 'alias']
-                  rule: self.all(x, has(x.id) || has(x.alias))
-                - message: '''id'' is mutually exclusive, cannot be set with a combination
-                    of other fields in imageSelectorTerms'
-                  rule: '!self.exists(x, has(x.id) && (has(x.alias)))'
-                - message: '''alias'' is mutually exclusive, cannot be set with a
-                    combination of other fields in imageSelectorTerms'
-                  rule: '!self.exists(x, has(x.alias) && (has(x.id)))'
-                - message: '''alias'' is mutually exclusive, cannot be set with a
-                    combination of other imageSelectorTerms'
-                  rule: '!(self.exists(x, has(x.alias)) && self.size() != 1)'
-              kubeletConfiguration:
-                description: |-
-                  KubeletConfiguration defines args to be used when configuring kubelet on provisioned nodes.
-                  They are a vswitch of the upstream types, recognizing not all options may be supported.
-                  Wherever possible, the types and names should reflect the upstream kubelet types.
-                properties:
-                  clusterDNS:
-                    description: |-
-                      clusterDNS is a list of IP addresses for the cluster DNS server.
-                      Note that not all providers may use all addresses.
-                    items:
-                      type: string
-                    type: array
-                  cpuCFSQuota:
-                    description: CPUCFSQuota enables CPU CFS quota enforcement for
-                      containers that specify CPU limits.
-                    type: boolean
-                  evictionHard:
-                    additionalProperties:
-                      type: string
-                    description: EvictionHard is the map of signal names to quantities
-                      that define hard eviction thresholds
-                    type: object
-                    x-kubernetes-validations:
-                    - message: valid keys for evictionHard are ['memory.available','nodefs.available','nodefs.inodesFree','imagefs.available','imagefs.inodesFree','pid.available']
-                      rule: self.all(x, x in ['memory.available','nodefs.available','nodefs.inodesFree','imagefs.available','imagefs.inodesFree','pid.available'])
-                  evictionMaxPodGracePeriod:
-                    description: |-
-                      EvictionMaxPodGracePeriod is the maximum allowed grace period (in seconds) to use when terminating pods in
-                      response to soft eviction thresholds being met.
-                    format: int32
-                    type: integer
-                  evictionSoft:
-                    additionalProperties:
-                      type: string
-                    description: EvictionSoft is the map of signal names to quantities
-                      that define soft eviction thresholds
-                    type: object
-                    x-kubernetes-validations:
-                    - message: valid keys for evictionSoft are ['memory.available','nodefs.available','nodefs.inodesFree','imagefs.available','imagefs.inodesFree','pid.available']
-                      rule: self.all(x, x in ['memory.available','nodefs.available','nodefs.inodesFree','imagefs.available','imagefs.inodesFree','pid.available'])
-                  evictionSoftGracePeriod:
-                    additionalProperties:
-                      type: string
-                    description: EvictionSoftGracePeriod is the map of signal names
-                      to quantities that define grace periods for each eviction signal
-                    type: object
-                    x-kubernetes-validations:
-                    - message: valid keys for evictionSoftGracePeriod are ['memory.available','nodefs.available','nodefs.inodesFree','imagefs.available','imagefs.inodesFree','pid.available']
-                      rule: self.all(x, x in ['memory.available','nodefs.available','nodefs.inodesFree','imagefs.available','imagefs.inodesFree','pid.available'])
-                  imageGCHighThresholdPercent:
-                    description: |-
-                      ImageGCHighThresholdPercent is the percent of disk usage after which image
-                      garbage collection is always run. The percent is calculated by dividing this
-                      field value by 100, so this field must be between 0 and 100, inclusive.
-                      When specified, the value must be greater than ImageGCLowThresholdPercent.
-                    format: int32
-                    maximum: 100
-                    minimum: 0
-                    type: integer
-                  imageGCLowThresholdPercent:
-                    description: |-
-                      ImageGCLowThresholdPercent is the percent of disk usage before which image
-                      garbage collection is never run. Lowest disk usage to garbage collect to.
-                      The percent is calculated by dividing this field value by 100,
-                      so the field value must be between 0 and 100, inclusive.
-                      When specified, the value must be less than imageGCHighThresholdPercent
-                    format: int32
-                    maximum: 100
-                    minimum: 0
-                    type: integer
-                  kubeReserved:
-                    additionalProperties:
-                      type: string
-                    description: KubeReserved contains resources reserved for Kubernetes
-                      system components.
-                    type: object
-                    x-kubernetes-validations:
-                    - message: valid keys for kubeReserved are ['cpu','memory','ephemeral-storage','pid']
-                      rule: self.all(x, x=='cpu' || x=='memory' || x=='ephemeral-storage'
-                        || x=='pid')
-                    - message: kubeReserved value cannot be a negative resource quantity
-                      rule: self.all(x, !self[x].startsWith('-'))
-                  maxPods:
-                    description: |-
-                      MaxPods is an override for the maximum number of pods that can run on
-                      a worker node instance.
-                    format: int32
-                    minimum: 0
-                    type: integer
-                  podsPerCore:
-                    description: |-
-                      PodsPerCore is an override for the number of pods that can run on a worker node
-                      instance based on the number of cpu cores. This value cannot exceed MaxPods, so, if
-                      MaxPods is a lower value, that value will be used.
-                    format: int32
-                    minimum: 0
-                    type: integer
-                  systemReserved:
-                    additionalProperties:
-                      type: string
-                    description: SystemReserved contains resources reserved for OS
-                      system daemons and kernel memory.
-                    type: object
-                    x-kubernetes-validations:
-                    - message: valid keys for systemReserved are ['cpu','memory','ephemeral-storage','pid']
-                      rule: self.all(x, x=='cpu' || x=='memory' || x=='ephemeral-storage'
-                        || x=='pid')
-                    - message: systemReserved value cannot be a negative resource
-                        quantity
-                      rule: self.all(x, !self[x].startsWith('-'))
-                type: object
-                x-kubernetes-validations:
-                - message: imageGCHighThresholdPercent must be greater than imageGCLowThresholdPercent
-                  rule: 'has(self.imageGCHighThresholdPercent) && has(self.imageGCLowThresholdPercent)
-                    ?  self.imageGCHighThresholdPercent > self.imageGCLowThresholdPercent  :
-                    true'
-                - message: evictionSoft OwnerKey does not have a matching evictionSoftGracePeriod
-                  rule: has(self.evictionSoft) ? self.evictionSoft.all(e, (e in self.evictionSoftGracePeriod)):true
-                - message: evictionSoftGracePeriod OwnerKey does not have a matching
-                    evictionSoft
-                  rule: has(self.evictionSoftGracePeriod) ? self.evictionSoftGracePeriod.all(e,
-                    (e in self.evictionSoft)):true
-              securityGroupSelectorTerms:
-                description: SecurityGroupSelectorTerms is a list of or security group
-                  selector terms. The terms are ORed.
-                items:
-                  description: |-
-                    SecurityGroupSelectorTerm defines selection logic for a security group used by Karpenter to launch nodes.
-                    If multiple fields are used for selection, the requirements are ANDed.
-                  properties:
-                    id:
-                      description: ID is the security group id in ECS
-                      pattern: sg-[0-9a-z]+
-                      type: string
-                    name:
-                      description: |-
-                        Name is the security group name in ECS.
-                        This value is the name field, which is different from the name tag.
-                      type: string
-                    tags:
+                        clusterDNS is a list of IP addresses for the cluster DNS server.
+                        Note that not all providers may use all addresses.
+                      items:
+                        type: string
+                      type: array
+                    cpuCFSQuota:
+                      description: CPUCFSQuota enables CPU CFS quota enforcement for containers that specify CPU limits.
+                      type: boolean
+                    evictionHard:
                       additionalProperties:
                         type: string
-                      description: |-
-                        Tags is a map of key/value tags used to select vSwitches
-                        Specifying '*' for a value selects all values for a given tag key.
-                      maxProperties: 20
+                        pattern: ^((\d{1,2}(\.\d{1,2})?|100(\.0{1,2})?)%||(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?)$
+                      description: EvictionHard is the map of signal names to quantities that define hard eviction thresholds
                       type: object
                       x-kubernetes-validations:
-                      - message: empty tag keys aren't supported
-                        rule: self.all(k, k != '')
-                  type: object
-                maxItems: 30
-                type: array
-                x-kubernetes-validations:
-                - message: securityGroupSelectorTerms cannot be empty
-                  rule: self.size() != 0
-                - message: expected at least one, got none, ['tags', 'id', 'name']
-                  rule: self.all(x, has(x.tags) || has(x.id) || has(x.name))
-                - message: '''id'' is mutually exclusive, cannot be set with a combination
-                    of other fields in securityGroupSelectorTerms'
-                  rule: '!self.all(x, has(x.id) && (has(x.tags) || has(x.name)))'
-                - message: '''name'' is mutually exclusive, cannot be set with a combination
-                    of other fields in securityGroupSelectorTerms'
-                  rule: '!self.all(x, has(x.name) && (has(x.tags) || has(x.id)))'
-              systemDisk:
-                description: SystemDisk to be applied to provisioned nodes.
-                properties:
-                  autoSnapshotPolicyId:
-                    description: The ID of the automatic snapshot policy to apply
-                      to the system disk.
-                    type: string
-                  burstingEnabled:
-                    description: Specifies whether to enable the performance burst
-                      feature for the system disk
-                    type: boolean
-                  category:
-                    description: |-
-                      The category of the system disk (for example, cloud or cloud_ssd).
-                      Only one of the following: "cloud", "cloud_efficiency", "cloud_ssd", "cloud_essd", "cloud_auto", and "cloud_essd_entry"
-                    enum:
-                    - cloud
-                    - cloud_efficiency
-                    - cloud_ssd
-                    - cloud_essd
-                    - cloud_auto
-                    - cloud_essd_entry
-                    type: string
-                  diskName:
-                    description: |-
-                      The name of the system disk.
-                      The name must be 2 to 128 characters in length.
-                      The name must start with a letter and cannot start with http:// or https://.
-                      The name can contain letters, digits, colons (:), underscores (_), and hyphens (-).
-                    pattern: ^[A-Za-z][A-Za-z0-9:_-]*$
-                    type: string
-                    x-kubernetes-validations:
-                    - message: format invalid
-                      rule: '!self.startsWith(''http'') && self.size() >= 2 && self.size()
-                        <= 128'
-                  performanceLevel:
-                    description: |-
-                      The performance level of the ESSD to use as the system disk. Default value: PL0.
-                      Valid values:
-                        * PL0: A single ESSD can deliver up to 10,000 random read/write IOPS.
-                        * PL1: A single ESSD can deliver up to 50,000 random read/write IOPS.
-                        * PL2: A single ESSD can deliver up to 100,000 random read/write IOPS.
-                        * PL3: A single ESSD can deliver up to 1,000,000 random read/write IOPS.
-                    enum:
-                    - PL0
-                    - PL1
-                    - PL2
-                    - PL3
-                    type: string
-                  size:
-                    description: |-
-                      The size of the system disk. Unit: GiB.
-                      Valid values:
-                        * If you set Category to cloud: 20 to 500.
-                        * If you set Category to other disk categories: 20 to 2048.
-                    format: int32
-                    type: integer
-                    x-kubernetes-validations:
-                    - message: size invalid
-                      rule: self >= 20
-                type: object
-              tags:
-                additionalProperties:
-                  type: string
-                description: Tags to be applied on ecs resources like instances and
-                  launch templates.
-                type: object
-                x-kubernetes-validations:
-                - message: empty tag keys aren't supported
-                  rule: self.all(k, k != '')
-                - message: tag contains a restricted tag matching ecs:ecs-cluster-name
-                  rule: self.all(k, k !='ecs:ecs-cluster-name')
-                - message: tag contains a restricted tag matching kubernetes.io/cluster/
-                  rule: self.all(k, !k.startsWith('kubernetes.io/cluster') )
-                - message: tag contains a restricted tag matching karpenter.sh/nodepool
-                  rule: self.all(k, k != 'karpenter.sh/nodepool')
-                - message: tag contains a restricted tag matching karpenter.sh/nodeclaim
-                  rule: self.all(k, k !='karpenter.sh/nodeclaim')
-                - message: tag contains a restricted tag matching karpenter.k8s.alibabacloud/ecsnodeclass
-                  rule: self.all(k, k !='karpenter.k8s.alibabacloud/ecsnodeclass')
-              userData:
-                description: |-
-                  UserData to be applied to the provisioned nodes.
-                  It must be in the appropriate format based on the ImageFamily in use. Karpenter will merge certain fields into
-                  this UserData to ensure nodes are being provisioned with the correct configuration.
-                type: string
-              vSwitchSelectorTerms:
-                description: VSwitchSelectorTerms is a list of or vSwitch selector
-                  terms. The terms are ORed.
-                items:
-                  description: VSwitchSelectorTerm defines selection logic for a vSwitch
-                    used by Karpenter to launch nodes.
-                  properties:
-                    id:
-                      description: ID is the vSwitch id in ECS
-                      pattern: vsw-[0-9a-z]+
-                      type: string
-                    tags:
+                        - message: valid keys for evictionHard are ['memory.available','nodefs.available','nodefs.inodesFree','imagefs.available','imagefs.inodesFree','pid.available']
+                          rule: self.all(x, x in ['memory.available','nodefs.available','nodefs.inodesFree','imagefs.available','imagefs.inodesFree','pid.available'])
+                    evictionMaxPodGracePeriod:
+                      description: |-
+                        EvictionMaxPodGracePeriod is the maximum allowed grace period (in seconds) to use when terminating pods in
+                        response to soft eviction thresholds being met.
+                      format: int32
+                      type: integer
+                    evictionSoft:
                       additionalProperties:
                         type: string
-                      description: |-
-                        Tags is a map of key/value tags used to select vSwitches
-                        Specifying '*' for a value selects all values for a given tag key.
-                      maxProperties: 20
+                        pattern: ^((\d{1,2}(\.\d{1,2})?|100(\.0{1,2})?)%||(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?)$
+                      description: EvictionSoft is the map of signal names to quantities that define soft eviction thresholds
                       type: object
                       x-kubernetes-validations:
-                      - message: empty tag keys aren't supported
-                        rule: self.all(k, k != '')
-                  type: object
-                maxItems: 30
-                type: array
-                x-kubernetes-validations:
-                - message: vSwitchSelectorTerms cannot be empty
-                  rule: self.size() != 0
-                - message: expected at least one, got none, ['tags', 'id']
-                  rule: self.all(x, has(x.tags) || has(x.id))
-                - message: '''id'' is mutually exclusive, cannot be set with a combination
-                    of other fields in vSwitchSelectorTerms'
-                  rule: '!self.all(x, has(x.id) && has(x.tags))'
-            required:
-            - imageSelectorTerms
-            - securityGroupSelectorTerms
-            - vSwitchSelectorTerms
-            type: object
-          status:
-            description: ECSNodeClassStatus contains the resolved state of the ECSNodeClass
-            properties:
-              conditions:
-                description: Conditions contains signals for health and readiness
-                items:
-                  description: Condition aliases the upstream type and adds additional
-                    helper methods
-                  properties:
-                    lastTransitionTime:
+                        - message: valid keys for evictionSoft are ['memory.available','nodefs.available','nodefs.inodesFree','imagefs.available','imagefs.inodesFree','pid.available']
+                          rule: self.all(x, x in ['memory.available','nodefs.available','nodefs.inodesFree','imagefs.available','imagefs.inodesFree','pid.available'])
+                    evictionSoftGracePeriod:
+                      additionalProperties:
+                        type: string
+                      description: EvictionSoftGracePeriod is the map of signal names to quantities that define grace periods for each eviction signal
+                      type: object
+                      x-kubernetes-validations:
+                        - message: valid keys for evictionSoftGracePeriod are ['memory.available','nodefs.available','nodefs.inodesFree','imagefs.available','imagefs.inodesFree','pid.available']
+                          rule: self.all(x, x in ['memory.available','nodefs.available','nodefs.inodesFree','imagefs.available','imagefs.inodesFree','pid.available'])
+                    imageGCHighThresholdPercent:
                       description: |-
-                        lastTransitionTime is the last time the condition transitioned from one status to another.
-                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
-                      format: date-time
-                      type: string
-                    message:
-                      description: |-
-                        message is a human readable message indicating details about the transition.
-                        This may be an empty string.
-                      maxLength: 32768
-                      type: string
-                    observedGeneration:
-                      description: |-
-                        observedGeneration represents the .metadata.generation that the condition was set based upon.
-                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
-                        with respect to the current state of the instance.
-                      format: int64
+                        ImageGCHighThresholdPercent is the percent of disk usage after which image
+                        garbage collection is always run. The percent is calculated by dividing this
+                        field value by 100, so this field must be between 0 and 100, inclusive.
+                        When specified, the value must be greater than ImageGCLowThresholdPercent.
+                      format: int32
+                      maximum: 100
                       minimum: 0
                       type: integer
-                    reason:
+                    imageGCLowThresholdPercent:
                       description: |-
-                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
-                        Producers of specific condition types may define expected values and meanings for this field,
-                        and whether the values are considered a guaranteed API.
-                        The value should be a CamelCase string.
-                        This field may not be empty.
-                      maxLength: 1024
-                      minLength: 1
-                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
-                      type: string
-                    status:
-                      description: status of the condition, one of True, False, Unknown.
-                      enum:
-                      - "True"
-                      - "False"
-                      - Unknown
-                      type: string
-                    type:
-                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
-                      maxLength: 316
-                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
-                      type: string
-                  required:
-                  - lastTransitionTime
-                  - message
-                  - reason
-                  - status
-                  - type
+                        ImageGCLowThresholdPercent is the percent of disk usage before which image
+                        garbage collection is never run. Lowest disk usage to garbage collect to.
+                        The percent is calculated by dividing this field value by 100,
+                        so the field value must be between 0 and 100, inclusive.
+                        When specified, the value must be less than imageGCHighThresholdPercent
+                      format: int32
+                      maximum: 100
+                      minimum: 0
+                      type: integer
+                    kubeReserved:
+                      additionalProperties:
+                        type: string
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      description: KubeReserved contains resources reserved for Kubernetes system components.
+                      type: object
+                      x-kubernetes-validations:
+                        - message: valid keys for kubeReserved are ['cpu','memory','ephemeral-storage','pid']
+                          rule: self.all(x, x=='cpu' || x=='memory' || x=='ephemeral-storage' || x=='pid')
+                        - message: kubeReserved value cannot be a negative resource quantity
+                          rule: self.all(x, !self[x].startsWith('-'))
+                    maxPods:
+                      description: |-
+                        MaxPods is an override for the maximum number of pods that can run on
+                        a worker node instance.
+                      format: int32
+                      minimum: 0
+                      type: integer
+                    podsPerCore:
+                      description: |-
+                        PodsPerCore is an override for the number of pods that can run on a worker node
+                        instance based on the number of cpu cores. This value cannot exceed MaxPods, so, if
+                        MaxPods is a lower value, that value will be used.
+                      format: int32
+                      minimum: 0
+                      type: integer
+                    systemReserved:
+                      additionalProperties:
+                        type: string
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      description: SystemReserved contains resources reserved for OS system daemons and kernel memory.
+                      type: object
+                      x-kubernetes-validations:
+                        - message: valid keys for systemReserved are ['cpu','memory','ephemeral-storage','pid']
+                          rule: self.all(x, x=='cpu' || x=='memory' || x=='ephemeral-storage' || x=='pid')
+                        - message: systemReserved value cannot be a negative resource quantity
+                          rule: self.all(x, !self[x].startsWith('-'))
                   type: object
-                type: array
-              images:
-                description: |-
-                  Image contains the current image that are available to the
-                  cluster under the Image selectors.
-                items:
-                  description: Image contains resolved image selector values utilized
-                    for node launch
-                  properties:
-                    id:
-                      description: ID of the Image
-                      type: string
-                    name:
-                      description: Name of the Image
-                      type: string
-                    requirements:
-                      description: Requirements of the Image to be utilized on an
-                        instance type
-                      items:
+                  x-kubernetes-validations:
+                    - message: imageGCHighThresholdPercent must be greater than imageGCLowThresholdPercent
+                      rule: 'has(self.imageGCHighThresholdPercent) && has(self.imageGCLowThresholdPercent) ?  self.imageGCHighThresholdPercent > self.imageGCLowThresholdPercent  : true'
+                    - message: evictionSoft OwnerKey does not have a matching evictionSoftGracePeriod
+                      rule: has(self.evictionSoft) ? self.evictionSoft.all(e, (e in self.evictionSoftGracePeriod)):true
+                    - message: evictionSoftGracePeriod OwnerKey does not have a matching evictionSoft
+                      rule: has(self.evictionSoftGracePeriod) ? self.evictionSoftGracePeriod.all(e, (e in self.evictionSoft)):true
+                securityGroupSelectorTerms:
+                  description: SecurityGroupSelectorTerms is a list of or security group selector terms. The terms are ORed.
+                  items:
+                    description: |-
+                      SecurityGroupSelectorTerm defines selection logic for a security group used by Karpenter to launch nodes.
+                      If multiple fields are used for selection, the requirements are ANDed.
+                    properties:
+                      id:
+                        description: ID is the security group id in ECS
+                        pattern: sg-[0-9a-z]+
+                        type: string
+                      name:
                         description: |-
-                          A node selector requirement is a selector that contains values, a key, and an operator
-                          that relates the key and values.
-                        properties:
-                          key:
-                            description: The label key that the selector applies to.
-                            type: string
-                          operator:
-                            description: |-
-                              Represents a key's relationship to a set of values.
-                              Valid operators are In, NotIn, Exists, DoesNotExist. Gt, and Lt.
-                            type: string
-                          values:
-                            description: |-
-                              An array of string values. If the operator is In or NotIn,
-                              the values array must be non-empty. If the operator is Exists or DoesNotExist,
-                              the values array must be empty. If the operator is Gt or Lt, the values
-                              array must have a single element, which will be interpreted as an integer.
-                              This array is replaced during a strategic merge patch.
-                            items:
-                              type: string
-                            type: array
-                            x-kubernetes-list-type: atomic
-                        required:
-                        - key
-                        - operator
+                          Name is the security group name in ECS.
+                          This value is the name field, which is different from the name tag.
+                        type: string
+                      tags:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          Tags is a map of key/value tags used to select vSwitches
+                          Specifying '*' for a value selects all values for a given tag key.
+                        maxProperties: 20
                         type: object
-                      type: array
-                  required:
-                  - id
-                  - requirements
-                  type: object
-                type: array
-              securityGroups:
-                description: |-
-                  SecurityGroups contains the current Security Groups values that are available to the
-                  cluster under the SecurityGroups selectors.
-                items:
-                  description: SecurityGroup contains resolved SecurityGroup selector
-                    values utilized for node launch
+                        x-kubernetes-validations:
+                          - message: empty tag keys aren't supported
+                            rule: self.all(k, k != '')
+                    type: object
+                  maxItems: 30
+                  type: array
+                  x-kubernetes-validations:
+                    - message: securityGroupSelectorTerms cannot be empty
+                      rule: self.size() != 0
+                    - message: expected at least one, got none, ['tags', 'id', 'name']
+                      rule: self.all(x, has(x.tags) || has(x.id) || has(x.name))
+                    - message: '''id'' is mutually exclusive, cannot be set with a combination of other fields in securityGroupSelectorTerms'
+                      rule: '!self.all(x, has(x.id) && (has(x.tags) || has(x.name)))'
+                    - message: '''name'' is mutually exclusive, cannot be set with a combination of other fields in securityGroupSelectorTerms'
+                      rule: '!self.all(x, has(x.name) && (has(x.tags) || has(x.id)))'
+                systemDisk:
+                  description: SystemDisk to be applied to provisioned nodes.
                   properties:
-                    id:
-                      description: ID of the security group
+                    autoSnapshotPolicyId:
+                      description: The ID of the automatic snapshot policy to apply to the system disk.
                       type: string
-                    name:
-                      description: Name of the security group
+                    burstingEnabled:
+                      description: Specifies whether to enable the performance burst feature for the system disk
+                      type: boolean
+                    category:
+                      description: |-
+                        The category of the system disk (for example, cloud or cloud_ssd).
+                        Only one of the following: "cloud", "cloud_efficiency", "cloud_ssd", "cloud_essd", "cloud_auto", and "cloud_essd_entry"
+                      enum:
+                        - cloud
+                        - cloud_efficiency
+                        - cloud_ssd
+                        - cloud_essd
+                        - cloud_auto
+                        - cloud_essd_entry
                       type: string
-                  required:
-                  - id
+                    diskName:
+                      description: |-
+                        The name of the system disk.
+                        The name must be 2 to 128 characters in length.
+                        The name must start with a letter and cannot start with http:// or https://.
+                        The name can contain letters, digits, colons (:), underscores (_), and hyphens (-).
+                      pattern: ^[A-Za-z][A-Za-z0-9:_-]*$
+                      type: string
+                      x-kubernetes-validations:
+                        - message: format invalid
+                          rule: '!self.startsWith(''http'') && self.size() >= 2 && self.size() <= 128'
+                    performanceLevel:
+                      description: |-
+                        The performance level of the ESSD to use as the system disk. Default value: PL0.
+                        Valid values:
+                          * PL0: A single ESSD can deliver up to 10,000 random read/write IOPS.
+                          * PL1: A single ESSD can deliver up to 50,000 random read/write IOPS.
+                          * PL2: A single ESSD can deliver up to 100,000 random read/write IOPS.
+                          * PL3: A single ESSD can deliver up to 1,000,000 random read/write IOPS.
+                      enum:
+                        - PL0
+                        - PL1
+                        - PL2
+                        - PL3
+                      type: string
+                    size:
+                      description: |-
+                        The size of the system disk. Unit: GiB.
+                        Valid values:
+                          * If you set Category to cloud: 20 to 500.
+                          * If you set Category to other disk categories: 20 to 2048.
+                      format: int32
+                      type: integer
+                      x-kubernetes-validations:
+                        - message: size invalid
+                          rule: self >= 20 && self <= 2048
                   type: object
-                type: array
-              vSwitches:
-                description: |-
-                  VSwitches contains the current VSwitch values that are available to the
-                  cluster under the vSwitch selectors.
-                items:
-                  description: VSwitch contains resolved VSwitch selector values utilized
-                    for node launch
-                  properties:
-                    id:
-                      description: ID of the vSwitch
-                      type: string
-                    zoneID:
-                      description: The associated availability zone ID
-                      type: string
-                  required:
-                  - id
-                  - zoneID
+                tags:
+                  additionalProperties:
+                    type: string
+                  description: Tags to be applied on ecs resources like instances and launch templates.
                   type: object
-                type: array
-            type: object
-        type: object
-    served: true
-    storage: true
-    subresources:
-      status: {}
+                  x-kubernetes-validations:
+                    - message: empty tag keys aren't supported
+                      rule: self.all(k, k != '')
+                    - message: tag contains a restricted tag matching ecs:ecs-cluster-name
+                      rule: self.all(k, k !='ecs:ecs-cluster-name')
+                    - message: tag contains a restricted tag matching kubernetes.io/cluster/
+                      rule: self.all(k, !k.startsWith('kubernetes.io/cluster') )
+                    - message: tag contains a restricted tag matching karpenter.sh/nodepool
+                      rule: self.all(k, k != 'karpenter.sh/nodepool')
+                    - message: tag contains a restricted tag matching karpenter.sh/nodeclaim
+                      rule: self.all(k, k !='karpenter.sh/nodeclaim')
+                    - message: tag contains a restricted tag matching karpenter.k8s.alibabacloud/ecsnodeclass
+                      rule: self.all(k, k !='karpenter.k8s.alicloud/ecsnodeclass')
+                userData:
+                  description: |-
+                    UserData to be applied to the provisioned nodes.
+                    It must be in the appropriate format based on the ImageFamily in use. Karpenter will merge certain fields into
+                    this UserData to ensure nodes are being provisioned with the correct configuration.
+                  type: string
+                vSwitchSelectorTerms:
+                  description: VSwitchSelectorTerms is a list of or vSwitch selector terms. The terms are ORed.
+                  items:
+                    description: VSwitchSelectorTerm defines selection logic for a vSwitch used by Karpenter to launch nodes.
+                    properties:
+                      id:
+                        description: ID is the vSwitch id in ECS
+                        pattern: vsw-[0-9a-z]+
+                        type: string
+                      tags:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          Tags is a map of key/value tags used to select vSwitches
+                          Specifying '*' for a value selects all values for a given tag key.
+                        maxProperties: 20
+                        type: object
+                        x-kubernetes-validations:
+                          - message: empty tag keys aren't supported
+                            rule: self.all(k, k != '')
+                    type: object
+                  maxItems: 30
+                  type: array
+                  x-kubernetes-validations:
+                    - message: vSwitchSelectorTerms cannot be empty
+                      rule: self.size() != 0
+                    - message: expected at least one, got none, ['tags', 'id']
+                      rule: self.all(x, has(x.tags) || has(x.id))
+                    - message: '''id'' is mutually exclusive, cannot be set with a combination of other fields in vSwitchSelectorTerms'
+                      rule: '!self.all(x, has(x.id) && has(x.tags))'
+              required:
+                - imageSelectorTerms
+                - securityGroupSelectorTerms
+                - vSwitchSelectorTerms
+              type: object
+            status:
+              description: ECSNodeClassStatus contains the resolved state of the ECSNodeClass
+              properties:
+                conditions:
+                  description: Conditions contains signals for health and readiness
+                  items:
+                    description: Condition aliases the upstream type and adds additional helper methods
+                    properties:
+                      lastTransitionTime:
+                        description: |-
+                          lastTransitionTime is the last time the condition transitioned from one status to another.
+                          This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                        format: date-time
+                        type: string
+                      message:
+                        description: |-
+                          message is a human readable message indicating details about the transition.
+                          This may be an empty string.
+                        maxLength: 32768
+                        type: string
+                      observedGeneration:
+                        description: |-
+                          observedGeneration represents the .metadata.generation that the condition was set based upon.
+                          For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                          with respect to the current state of the instance.
+                        format: int64
+                        minimum: 0
+                        type: integer
+                      reason:
+                        description: |-
+                          reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                          Producers of specific condition types may define expected values and meanings for this field,
+                          and whether the values are considered a guaranteed API.
+                          The value should be a CamelCase string.
+                          This field may not be empty.
+                        maxLength: 1024
+                        minLength: 1
+                        pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                        type: string
+                      status:
+                        description: status of the condition, one of True, False, Unknown.
+                        enum:
+                          - "True"
+                          - "False"
+                          - Unknown
+                        type: string
+                      type:
+                        description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                        maxLength: 316
+                        pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                        type: string
+                    required:
+                      - lastTransitionTime
+                      - message
+                      - reason
+                      - status
+                      - type
+                    type: object
+                  type: array
+                images:
+                  description: |-
+                    Image contains the current image that are available to the
+                    cluster under the Image selectors.
+                  items:
+                    description: Image contains resolved image selector values utilized for node launch
+                    properties:
+                      id:
+                        description: ID of the Image
+                        type: string
+                      name:
+                        description: Name of the Image
+                        type: string
+                      requirements:
+                        description: Requirements of the Image to be utilized on an instance type
+                        items:
+                          description: |-
+                            A node selector requirement is a selector that contains values, a key, and an operator
+                            that relates the key and values.
+                          properties:
+                            key:
+                              description: The label key that the selector applies to.
+                              type: string
+                            operator:
+                              description: |-
+                                Represents a key's relationship to a set of values.
+                                Valid operators are In, NotIn, Exists, DoesNotExist. Gt, and Lt.
+                              type: string
+                            values:
+                              description: |-
+                                An array of string values. If the operator is In or NotIn,
+                                the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                                the values array must be empty. If the operator is Gt or Lt, the values
+                                array must have a single element, which will be interpreted as an integer.
+                                This array is replaced during a strategic merge patch.
+                              items:
+                                type: string
+                              type: array
+                              x-kubernetes-list-type: atomic
+                          required:
+                            - key
+                            - operator
+                          type: object
+                        type: array
+                    required:
+                      - id
+                      - requirements
+                    type: object
+                  type: array
+                securityGroups:
+                  description: |-
+                    SecurityGroups contains the current Security Groups values that are available to the
+                    cluster under the SecurityGroups selectors.
+                  items:
+                    description: SecurityGroup contains resolved SecurityGroup selector values utilized for node launch
+                    properties:
+                      id:
+                        description: ID of the security group
+                        type: string
+                      name:
+                        description: Name of the security group
+                        type: string
+                    required:
+                      - id
+                    type: object
+                  type: array
+                vSwitches:
+                  description: |-
+                    VSwitches contains the current VSwitch values that are available to the
+                    cluster under the vSwitch selectors.
+                  items:
+                    description: VSwitch contains resolved VSwitch selector values utilized for node launch
+                    properties:
+                      id:
+                        description: ID of the vSwitch
+                        type: string
+                      zoneID:
+                        description: The associated availability zone ID
+                        type: string
+                    required:
+                      - id
+                      - zoneID
+                    type: object
+                  type: array
+              type: object
+          type: object
+      served: true
+      storage: true
+      subresources:
+        status: {}
