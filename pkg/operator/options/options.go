@@ -23,10 +23,12 @@ import (
 	"fmt"
 	"os"
 
+	cs20151215 "github.com/alibabacloud-go/cs-20151215/v5/client"
 	coreoptions "sigs.k8s.io/karpenter/pkg/operator/options"
 	"sigs.k8s.io/karpenter/pkg/utils/env"
 
 	"github.com/cloudpilot-ai/karpenter-provider-alicloud/pkg/utils"
+	utilsclient "github.com/cloudpilot-ai/karpenter-provider-alicloud/pkg/utils/client"
 )
 
 func init() {
@@ -58,6 +60,23 @@ func (o *Options) Parse(fs *coreoptions.FlagSet, args ...string) error {
 		}
 		return fmt.Errorf("parsing flags, %w", err)
 	}
+
+	clientConfig, err := utilsclient.NewClientConfig()
+	if err != nil {
+		return fmt.Errorf("getting client config, %w", err)
+	}
+
+	if o.ClusterID != "" && o.ClusterName == "" {
+		client, err := cs20151215.NewClient(clientConfig)
+		if err != nil {
+			return fmt.Errorf("creating cs client, %w", err)
+		}
+		o.ClusterName, err = utilsclient.GetClusterName(client, &o.ClusterID)
+		if err != nil {
+			return fmt.Errorf("getting cluster name, %w", err)
+		}
+	}
+
 	if err := o.Validate(); err != nil {
 		return fmt.Errorf("validating options, %w", err)
 	}

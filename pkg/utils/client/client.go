@@ -19,7 +19,9 @@ package client
 import (
 	"errors"
 
+	cs20151215 "github.com/alibabacloud-go/cs-20151215/v5/client"
 	openapi "github.com/alibabacloud-go/darabonba-openapi/v2/client"
+	util "github.com/alibabacloud-go/tea-utils/v2/service"
 	"github.com/alibabacloud-go/tea/tea"
 	aliyunconfig "github.com/aliyun/aliyun-cli/config"
 )
@@ -43,4 +45,20 @@ func NewClientConfig() (*openapi.Config, error) {
 		RegionId:   tea.String(profile.RegionId),
 		Credential: credentialClient,
 	}, nil
+}
+
+func GetClusterName(client *cs20151215.Client, clusterID *string) (string, error) {
+	runtime := &util.RuntimeOptions{}
+	headers := make(map[string]*string)
+
+	resp, err := client.DescribeClusterDetailWithOptions(clusterID, headers, runtime)
+	if err != nil {
+		return "", err
+	}
+
+	if resp == nil || resp.Body == nil || resp.Body.Name == nil {
+		return "", errors.New("cluster name is not existed")
+	}
+
+	return *resp.Body.Name, nil
 }
