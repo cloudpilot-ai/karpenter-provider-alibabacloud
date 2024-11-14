@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"math/rand"
 	"net/http"
 	"strings"
 
@@ -532,29 +533,66 @@ func (p *DefaultProvider) checkODFallback(nodeClaim *karpv1.NodeClaim, instanceT
 
 func (p *DefaultProvider) getVSwitchID(instanceType *cloudprovider.InstanceType,
 	zonalVSwitchs map[string]*vswitch.VSwitch, reqs scheduling.Requirements, capacityType string) string {
-	cheapestVSwitchID := ""
-	cheapestPrice := math.MaxFloat64
+	// For on-demand, we can use any vSwitch that matches requirements
+	if capacityType == karpv1.CapacityTypeOnDemand {
+		for i := range instanceType.Offerings {
+			if reqs.Compatible(instanceType.Offerings[i].Requirements, scheduling.AllowUndefinedWellKnownLabels) != nil {
+				continue
+			}
+			zone := instanceType.Offerings[i].Requirements.Get(corev1.LabelTopologyZone).Any()
+			if vswitch, ok := zonalVSwitchs[zone]; ok {
+				return vswitch.ID
+			}
+		}
+		return ""
+	}
 
-	// For different AZ, the spot price may differ. So we need to get the cheapest vSwitch in the zone
+	// For spot instances, find cheapest price per zone
+	type zonePrice struct {
+		vswitchID string
+		price     float64
+	}
+	zonePrices := make(map[string]zonePrice)
+
 	for i := range instanceType.Offerings {
 		if reqs.Compatible(instanceType.Offerings[i].Requirements, scheduling.AllowUndefinedWellKnownLabels) != nil {
 			continue
 		}
-		vswitch, ok := zonalVSwitchs[instanceType.Offerings[i].Requirements.Get(corev1.LabelTopologyZone).Any()]
+
+		zone := instanceType.Offerings[i].Requirements.Get(corev1.LabelTopologyZone).Any()
+		vswitch, ok := zonalVSwitchs[zone]
 		if !ok {
 			continue
 		}
-		if capacityType == karpv1.CapacityTypeOnDemand {
-			return vswitch.ID
-		}
 
-		if instanceType.Offerings[i].Price < cheapestPrice {
-			cheapestVSwitchID = vswitch.ID
-			cheapestPrice = instanceType.Offerings[i].Price
+		currentPrice := instanceType.Offerings[i].Price
+		if existing, exists := zonePrices[zone]; !exists || currentPrice < existing.price {
+			zonePrices[zone] = zonePrice{
+				vswitchID: vswitch.ID,
+				price:     currentPrice,
+			}
 		}
 	}
 
-	return cheapestVSwitchID
+	// Find the lowest price across all zones
+	lowestPrice := math.MaxFloat64
+	var cheapestVSwitches []string
+
+	for _, zp := range zonePrices {
+		if zp.price < lowestPrice {
+			lowestPrice = zp.price
+			cheapestVSwitches = []string{zp.vswitchID}
+		} else if zp.price == lowestPrice {
+			cheapestVSwitches = append(cheapestVSwitches, zp.vswitchID)
+		}
+	}
+
+	if len(cheapestVSwitches) == 0 {
+		return ""
+	}
+
+	// Randomly select one of the cheapest vSwitches
+	return cheapestVSwitches[rand.Intn(len(cheapestVSwitches))]
 }
 
 type LaunchTemplate struct {
