@@ -27,7 +27,7 @@ import (
 	"sigs.k8s.io/karpenter/pkg/test/v1alpha1"
 	. "sigs.k8s.io/karpenter/pkg/utils/testing"
 
-	"github.com/cloudpilot-ai/karpenter-provider-alicloud/pkg/apis"
+	"github.com/cloudpilot-ai/karpenter-provider-alibabacloud/pkg/apis"
 )
 
 var ctx context.Context

@@ -89,7 +89,7 @@ var _ = Describe("CEL/Validation", func() {
 			}
 			Expect(env.Client.Create(ctx, nc)).To(Not(Succeed()))
 			nc.Spec.Tags = map[string]string{
-				ECSClusterNameTagKey: "test",
+				ECSClusterIDTagKey: "test",
 			}
 			Expect(env.Client.Create(ctx, nc)).To(Not(Succeed()))
 			nc.Spec.Tags = map[string]string{
@@ -336,7 +336,7 @@ var _ = Describe("CEL/Validation", func() {
 	})
 	Context("ImageSelectorTerms", func() {
 		Context("ImageFamily", func() {
-			imageFamilies := []string{ImageFamilyAlibabaCloudLinux3, ImageFamilyAlibabaCloudLinux2}
+			imageFamilies := []string{ImageFamilyAlibabaCloudLinux3, ImageFamilyContainerOS}
 			DescribeTable("should succeed with valid families", func() []interface{} {
 				f := func(imageFamily string) {
 					nc.Spec.ImageSelectorTerms = []ImageSelectorTerm{{Alias: imageFamily}}
@@ -632,12 +632,25 @@ var _ = Describe("CEL/Validation", func() {
 					VSwitchSelectorTerms:       nc.Spec.VSwitchSelectorTerms,
 					SecurityGroupSelectorTerms: nc.Spec.SecurityGroupSelectorTerms,
 					SystemDisk: &SystemDisk{
-						Category:             tea.String("cloud_essd"),
-						Size:                 tea.Int32(80),
-						DiskName:             tea.String("device-1"),
-						PerformanceLevel:     tea.String("PL2"),
-						AutoSnapshotPolicyID: tea.String("sp-1234"),
-						BurstingEnabled:      tea.Bool(true),
+						Categories:       []string{"cloud_essd"},
+						Size:             tea.Int32(80),
+						PerformanceLevel: tea.String("PL2"),
+					},
+				},
+			}
+			Expect(env.Client.Create(ctx, nodeClass)).To(Succeed())
+		})
+		It("should succeed if multiple system disk categories is specified", func() {
+			nodeClass := &ECSNodeClass{
+				ObjectMeta: test.ObjectMeta(metav1.ObjectMeta{}),
+				Spec: ECSNodeClassSpec{
+					ImageSelectorTerms:         nc.Spec.ImageSelectorTerms,
+					VSwitchSelectorTerms:       nc.Spec.VSwitchSelectorTerms,
+					SecurityGroupSelectorTerms: nc.Spec.SecurityGroupSelectorTerms,
+					SystemDisk: &SystemDisk{
+						Categories:       []string{"cloud_essd", "cloud_auto"},
+						Size:             tea.Int32(80),
+						PerformanceLevel: tea.String("PL2"),
 					},
 				},
 			}
@@ -651,14 +664,28 @@ var _ = Describe("CEL/Validation", func() {
 					VSwitchSelectorTerms:       nc.Spec.VSwitchSelectorTerms,
 					SecurityGroupSelectorTerms: nc.Spec.SecurityGroupSelectorTerms,
 					SystemDisk: &SystemDisk{
-						Category: tea.String("cloud_auto"),
-						Size:     tea.Int32(80),
+						Categories: []string{"cloud_auto"},
+						Size:       tea.Int32(80),
 					},
 				},
 			}
 			Expect(env.Client.Create(ctx, nodeClass)).To(Succeed())
 		})
-
+		It("should fail if category not allowed", func() {
+			nodeClass := &ECSNodeClass{
+				ObjectMeta: test.ObjectMeta(metav1.ObjectMeta{}),
+				Spec: ECSNodeClassSpec{
+					ImageSelectorTerms:         nc.Spec.ImageSelectorTerms,
+					VSwitchSelectorTerms:       nc.Spec.VSwitchSelectorTerms,
+					SecurityGroupSelectorTerms: nc.Spec.SecurityGroupSelectorTerms,
+					SystemDisk: &SystemDisk{
+						Categories: []string{"cloud_essd", "cloud_nvme"},
+						Size:       tea.Int32(10),
+					},
+				},
+			}
+			Expect(env.Client.Create(ctx, nodeClass)).To(Not(Succeed()))
+		})
 		It("should fail size is less then 20G", func() {
 			nodeClass := &ECSNodeClass{
 				ObjectMeta: test.ObjectMeta(metav1.ObjectMeta{}),
@@ -667,8 +694,8 @@ var _ = Describe("CEL/Validation", func() {
 					VSwitchSelectorTerms:       nc.Spec.VSwitchSelectorTerms,
 					SecurityGroupSelectorTerms: nc.Spec.SecurityGroupSelectorTerms,
 					SystemDisk: &SystemDisk{
-						Category: tea.String("cloud_essd"),
-						Size:     tea.Int32(10),
+						Categories: []string{"cloud_essd"},
+						Size:       tea.Int32(10),
 					},
 				},
 			}
@@ -682,8 +709,8 @@ var _ = Describe("CEL/Validation", func() {
 					VSwitchSelectorTerms:       nc.Spec.VSwitchSelectorTerms,
 					SecurityGroupSelectorTerms: nc.Spec.SecurityGroupSelectorTerms,
 					SystemDisk: &SystemDisk{
-						Category: tea.String("cloud_essd"),
-						Size:     tea.Int32(4096),
+						Categories: []string{"cloud_essd"},
+						Size:       tea.Int32(4096),
 					},
 				},
 			}
