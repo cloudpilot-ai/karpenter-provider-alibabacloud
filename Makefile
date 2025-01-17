@@ -42,6 +42,8 @@ run: ## Run Karpenter controller binary against your local cluster
 update: tidy download ## Update go files header, CRD and generated code
 	hack/boilerplate.sh
 	hack/update-generated.sh
+	hack/validation/kubelet.sh
+	cp pkg/apis/crds/* charts/karpenter/crds
 
 verify: ## Verify code. Includes linting, formatting, etc
 	golangci-lint run

@@ -73,6 +73,7 @@ type ECSNodeClassSpec struct {
 	// Tags to be applied on ecs resources like instances and launch templates.
 	// +kubebuilder:validation:XValidation:message="empty tag keys aren't supported",rule="self.all(k, k != '')"
 	// +kubebuilder:validation:XValidation:message="tag contains a restricted tag matching ecs:ecs-cluster-name",rule="self.all(k, k !='ecs:ecs-cluster-name')"
+	// +kubebuilder:validation:XValidation:message="tag contains a restricted tag matching ecs:ecs-cluster-id",rule="self.all(k, k !='ecs:ecs-cluster-id')"
 	// +kubebuilder:validation:XValidation:message="tag contains a restricted tag matching kubernetes.io/cluster/",rule="self.all(k, !k.startsWith('kubernetes.io/cluster') )"
 	// +kubebuilder:validation:XValidation:message="tag contains a restricted tag matching karpenter.sh/nodepool",rule="self.all(k, k != 'karpenter.sh/nodepool')"
 	// +kubebuilder:validation:XValidation:message="tag contains a restricted tag matching karpenter.sh/nodeclaim",rule="self.all(k, k !='karpenter.sh/nodeclaim')"
@@ -216,7 +217,7 @@ type SystemDisk struct {
 	//   * If you set Category to cloud: 20 to 500.
 	//   * If you set Category to other disk categories: 20 to 2048.
 	//
-	// +kubebuilder:validation:XValidation:message="size invalid",rule="self >= 20"
+	// +kubebuilder:validation:XValidation:message="size invalid",rule="self >= 20 && self <= 2048"
 	// +optional
 	Size *int32 `json:"size,omitempty"`
 	// The performance level of the ESSD to use as the system disk. Default value: PL0.
