@@ -71,8 +71,9 @@ type ECSNodeClassSpec struct {
 	// +optional
 	SystemDisk *SystemDisk `json:"systemDisk,omitempty"`
 	// DataDisk to be applied to provisioned nodes.
+	// +kubebuilder:validation:XValidation:message="PerformanceLevel can be set only when Category belongs to ESSD",rule="!self.exists(x, has(x.performanceLevel) && ((!has(x.category))||x.category=='cloud'||x.category=='cloud_efficiency'||x.category=='cloud_ssd'))"
 	// +optional
-	DataDisk []DataDisk `json:"dataDisk,omitempty"`
+	DataDisks []DataDisk `json:"dataDisks,omitempty"`
 	// Tags to be applied on ecs resources like instances and launch templates.
 	// +kubebuilder:validation:XValidation:message="empty tag keys aren't supported",rule="self.all(k, k != '')"
 	// +kubebuilder:validation:XValidation:message="tag contains a restricted tag matching ecs:ecs-cluster-name",rule="self.all(k, k !='ecs:ecs-cluster-name')"
@@ -240,14 +241,13 @@ type DataDisk struct {
 	// Valid values:"cloud", "cloud_efficiency", "cloud_ssd", "cloud_essd", "cloud_auto", and "cloud_essd_entry"
 	// +kubebuilder:validation:Items=Enum=cloud;cloud_efficiency;cloud_ssd;cloud_essd;cloud_auto;cloud_essd_entry
 	// +optional
-	Category *string `json:"categories,omitempty"`
+	Category *string `json:"category,omitempty"`
 	// The size of the data disk. Unit: GiB.
 	// Valid values:
 	//   * If you set Category to cloud: 20 to 500.
 	//   * If you set Category to other disk categories: 20 to 2048.
 	//
 	// +kubebuilder:validation:XValidation:message="size invalid",rule="self >= 20"
-	// +optional
 	Size *int32 `json:"size,omitempty"`
 	// Mount point of the data disk.
 	// +optional
