@@ -46,6 +46,51 @@ spec:
               ECSNodeClassSpec is the top level specification for the AlibabaCloud Karpenter Provider.
               This will contain the configuration necessary to launch instances in AlibabaCloud.
             properties:
+              dataDisks:
+                description: DataDisk to be applied to provisioned nodes.
+                items:
+                  properties:
+                    category:
+                      description: |-
+                        The category of the data disk (for example, cloud and cloud_ssd).
+                        Different ECS is compatible with different disk category, using array to maximize ECS creation success.
+                        Valid values:"cloud", "cloud_efficiency", "cloud_ssd", "cloud_essd", "cloud_auto", and "cloud_essd_entry"
+                      type: string
+                    device:
+                      description: Mount point of the data disk.
+                      type: string
+                    performanceLevel:
+                      default: PL0
+                      description: |-
+                        The performance level of the ESSD to use as the data disk. Default value: PL0.
+                        Valid values:
+                          * PL0: A single ESSD can deliver up to 10,000 random read/write IOPS.
+                          * PL1: A single ESSD can deliver up to 50,000 random read/write IOPS.
+                          * PL2: A single ESSD can deliver up to 100,000 random read/write IOPS.
+                          * PL3: A single ESSD can deliver up to 1,000,000 random read/write IOPS.
+                      enum:
+                      - PL0
+                      - PL1
+                      - PL2
+                      - PL3
+                      type: string
+                    size:
+                      description: |-
+                        The size of the data disk. Unit: GiB.
+                        Valid values:
+                          * If you set Category to cloud: 20 to 500.
+                          * If you set Category to other disk categories: 20 to 2048.
+                      format: int32
+                      type: integer
+                      x-kubernetes-validations:
+                      - message: size invalid
+                        rule: self >= 20
+                  type: object
+                type: array
+                x-kubernetes-validations:
+                - message: PerformanceLevel can be set only when Category belongs
+                    to ESSD
+                  rule: '!self.exists(x, has(x.performanceLevel) && ((!has(x.category))||x.category==''cloud''||x.category==''cloud_efficiency''||x.category==''cloud_ssd''))'
               imageSelectorTerms:
                 description: ImageSelectorTerms is a list of or image selector terms.
                   The terms are ORed.

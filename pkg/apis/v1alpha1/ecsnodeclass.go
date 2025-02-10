@@ -71,6 +71,10 @@ type ECSNodeClassSpec struct {
 	// SystemDisk to be applied to provisioned nodes.
 	// +optional
 	SystemDisk *SystemDisk `json:"systemDisk,omitempty"`
+	// DataDisk to be applied to provisioned nodes.
+	// +kubebuilder:validation:XValidation:message="PerformanceLevel can be set only when Category belongs to ESSD",rule="!self.exists(x, has(x.performanceLevel) && ((!has(x.category))||x.category=='cloud'||x.category=='cloud_efficiency'||x.category=='cloud_ssd'))"
+	// +optional
+	DataDisks []DataDisk `json:"dataDisks,omitempty"`
 	// Tags to be applied on ecs resources like instances and launch templates.
 	// +kubebuilder:validation:XValidation:message="empty tag keys aren't supported",rule="self.all(k, k != '')"
 	// +kubebuilder:validation:XValidation:message="tag contains a restricted tag matching ecs:ecs-cluster-name",rule="self.all(k, k !='ecs:ecs-cluster-name')"
@@ -247,6 +251,34 @@ type SystemDisk struct {
 	//   * PL2: A single ESSD can deliver up to 100,000 random read/write IOPS.
 	//   * PL3: A single ESSD can deliver up to 1,000,000 random read/write IOPS.
 	// This will be supported soon
+	// +kubebuilder:validation:Enum:={PL0,PL1,PL2,PL3}
+	// +kubebuilder:default:=PL0
+	PerformanceLevel *string `json:"performanceLevel,omitempty"`
+}
+
+type DataDisk struct {
+	// The category of the data disk (for example, cloud and cloud_ssd).
+	// Different ECS is compatible with different disk category, using array to maximize ECS creation success.
+	// Valid values:"cloud", "cloud_efficiency", "cloud_ssd", "cloud_essd", "cloud_auto", and "cloud_essd_entry"
+	// +kubebuilder:validation:Items=Enum=cloud;cloud_efficiency;cloud_ssd;cloud_essd;cloud_auto;cloud_essd_entry
+	// +optional
+	Category *string `json:"category,omitempty"`
+	// The size of the data disk. Unit: GiB.
+	// Valid values:
+	//   * If you set Category to cloud: 20 to 500.
+	//   * If you set Category to other disk categories: 20 to 2048.
+	//
+	// +kubebuilder:validation:XValidation:message="size invalid",rule="self >= 20"
+	Size *int32 `json:"size,omitempty"`
+	// Mount point of the data disk.
+	// +optional
+	Device *string `json:"device,omitempty"`
+	// The performance level of the ESSD to use as the data disk. Default value: PL0.
+	// Valid values:
+	//   * PL0: A single ESSD can deliver up to 10,000 random read/write IOPS.
+	//   * PL1: A single ESSD can deliver up to 50,000 random read/write IOPS.
+	//   * PL2: A single ESSD can deliver up to 100,000 random read/write IOPS.
+	//   * PL3: A single ESSD can deliver up to 1,000,000 random read/write IOPS.
 	// +kubebuilder:validation:Enum:={PL0,PL1,PL2,PL3}
 	// +kubebuilder:default:=PL0
 	PerformanceLevel *string `json:"performanceLevel,omitempty"`
