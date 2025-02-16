@@ -28,9 +28,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	"sigs.k8s.io/karpenter/pkg/operator/injection"
-
 	v1 "sigs.k8s.io/karpenter/pkg/apis/v1"
+	"sigs.k8s.io/karpenter/pkg/controllers/state"
+	"sigs.k8s.io/karpenter/pkg/operator/injection"
 	"sigs.k8s.io/karpenter/pkg/utils/pod"
 )
 
@@ -38,13 +38,15 @@ import (
 type PodController struct {
 	kubeClient  client.Client
 	provisioner *Provisioner
+	cluster     *state.Cluster
 }
 
 // NewPodController constructs a controller instance
-func NewPodController(kubeClient client.Client, provisioner *Provisioner) *PodController {
+func NewPodController(kubeClient client.Client, provisioner *Provisioner, cluster *state.Cluster) *PodController {
 	return &PodController{
 		kubeClient:  kubeClient,
 		provisioner: provisioner,
+		cluster:     cluster,
 	}
 }
 
@@ -55,7 +57,9 @@ func (c *PodController) Reconcile(ctx context.Context, p *corev1.Pod) (reconcile
 	if !pod.IsProvisionable(p) {
 		return reconcile.Result{}, nil
 	}
-	c.provisioner.Trigger()
+	c.provisioner.Trigger(p.UID)
+	// ACK the pending pod when first observed so that total time spent pending due to Karpenter is tracked.
+	c.cluster.AckPods(p)
 	// Continue to requeue until the pod is no longer provisionable. Pods may
 	// not be scheduled as expected if new pods are created while nodes are
 	// coming online. Even if a provisioning loop is successful, the pod may
@@ -94,11 +98,11 @@ func (c *NodeController) Reconcile(ctx context.Context, n *corev1.Node) (reconci
 	// We don't check the deletion timestamp here, as we expect the termination controller to eventually set
 	// the taint when it picks up the node from being deleted.
 	if !lo.ContainsBy(n.Spec.Taints, func(taint corev1.Taint) bool {
-		return v1.IsDisruptingTaint(taint)
+		return taint.MatchTaint(&v1.DisruptedNoScheduleTaint)
 	}) {
 		return reconcile.Result{}, nil
 	}
-	c.provisioner.Trigger()
+	c.provisioner.Trigger(n.UID)
 	// Continue to requeue until the node is no longer provisionable. Pods may
 	// not be scheduled as expected if new pods are created while nodes are
 	// coming online. Even if a provisioning loop is successful, the pod may

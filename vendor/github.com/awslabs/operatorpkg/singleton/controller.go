@@ -31,7 +31,7 @@ func Source() source.Source {
 	eventSource := make(chan event.GenericEvent, 1)
 	eventSource <- event.GenericEvent{}
 	return source.Channel(eventSource, handler.Funcs{
-		GenericFunc: func(_ context.Context, _ event.GenericEvent, queue workqueue.RateLimitingInterface) {
+		GenericFunc: func(_ context.Context, _ event.GenericEvent, queue workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 			queue.Add(reconcile.Request{})
 		},
 	})

@@ -22,14 +22,9 @@ import (
 	"math"
 
 	"github.com/awslabs/operatorpkg/option"
+	"go.uber.org/multierr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
-
-	"sigs.k8s.io/karpenter/pkg/controllers/state"
-	"sigs.k8s.io/karpenter/pkg/scheduling"
-	"sigs.k8s.io/karpenter/pkg/utils/pretty"
-
-	"go.uber.org/multierr"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
@@ -37,7 +32,10 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"sigs.k8s.io/karpenter/pkg/controllers/state"
+	"sigs.k8s.io/karpenter/pkg/scheduling"
 	"sigs.k8s.io/karpenter/pkg/utils/pod"
+	"sigs.k8s.io/karpenter/pkg/utils/pretty"
 )
 
 type Topology struct {
@@ -203,6 +201,20 @@ func (t *Topology) Register(topologyKey string, domain string) {
 	}
 }
 
+// Unregister is used to unregister a domain as available across topologies for the given topology key.
+func (t *Topology) Unregister(topologyKey string, domain string) {
+	for _, topology := range t.topologies {
+		if topology.Key == topologyKey {
+			topology.Unregister(domain)
+		}
+	}
+	for _, topology := range t.inverseTopologies {
+		if topology.Key == topologyKey {
+			topology.Unregister(domain)
+		}
+	}
+}
+
 // updateInverseAffinities is used to identify pods with anti-affinity terms so we can track those topologies.  We
 // have to look at every pod in the cluster as there is no way to query for a pod with anti-affinity terms.
 func (t *Topology) updateInverseAffinities(ctx context.Context) error {
@@ -260,7 +272,7 @@ func (t *Topology) countDomains(ctx context.Context, tg *TopologyGroup) error {
 	// simultaneously)
 	var pods []corev1.Pod
 	for _, ns := range tg.namespaces.UnsortedList() {
-		if err := t.kubeClient.List(ctx, podList, TopologyListOptions(ns, tg.selector)); err != nil {
+		if err := t.kubeClient.List(ctx, podList, TopologyListOptions(ns, tg.rawSelector)); err != nil {
 			return fmt.Errorf("listing pods, %w", err)
 		}
 		pods = append(pods, podList.Items...)

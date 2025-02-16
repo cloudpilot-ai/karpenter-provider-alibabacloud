@@ -24,7 +24,6 @@ import (
 
 	"github.com/samber/lo"
 	"k8s.io/apimachinery/pkg/util/sets"
-
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	v1 "sigs.k8s.io/karpenter/pkg/apis/v1"
@@ -34,6 +33,7 @@ import (
 )
 
 const MultiNodeConsolidationTimeoutDuration = 1 * time.Minute
+const MultiNodeConsolidationType = "multi"
 
 type MultiNodeConsolidation struct {
 	consolidation
@@ -43,7 +43,7 @@ func NewMultiNodeConsolidation(consolidation consolidation) *MultiNodeConsolidat
 	return &MultiNodeConsolidation{consolidation: consolidation}
 }
 
-func (m *MultiNodeConsolidation) ComputeCommand(ctx context.Context, disruptionBudgetMapping map[string]map[v1.DisruptionReason]int, candidates ...*Candidate) (Command, scheduling.Results, error) {
+func (m *MultiNodeConsolidation) ComputeCommand(ctx context.Context, disruptionBudgetMapping map[string]int, candidates ...*Candidate) (Command, scheduling.Results, error) {
 	if m.IsConsolidated() {
 		return Command{}, scheduling.Results{}, nil
 	}
@@ -61,7 +61,7 @@ func (m *MultiNodeConsolidation) ComputeCommand(ctx context.Context, disruptionB
 	for _, candidate := range candidates {
 		// If there's disruptions allowed for the candidate's nodepool,
 		// add it to the list of candidates, and decrement the budget.
-		if disruptionBudgetMapping[candidate.nodePool.Name][m.Reason()] == 0 {
+		if disruptionBudgetMapping[candidate.nodePool.Name] == 0 {
 			constrainedByBudgets = true
 			continue
 		}
@@ -73,7 +73,7 @@ func (m *MultiNodeConsolidation) ComputeCommand(ctx context.Context, disruptionB
 		}
 		// set constrainedByBudgets to true if any node was a candidate but was constrained by a budget
 		disruptableCandidates = append(disruptableCandidates, candidate)
-		disruptionBudgetMapping[candidate.nodePool.Name][m.Reason()]--
+		disruptionBudgetMapping[candidate.nodePool.Name]--
 	}
 
 	// Only consider a maximum batch of 100 NodeClaims to save on computation.
@@ -124,7 +124,7 @@ func (m *MultiNodeConsolidation) firstNConsolidationOption(ctx context.Context, 
 	// binary search to find the maximum number of NodeClaims we can terminate
 	for min <= max {
 		if m.clock.Now().After(timeout) {
-			ConsolidationTimeoutsTotal.WithLabelValues(m.ConsolidationType()).Inc()
+			ConsolidationTimeoutsTotal.Inc(map[string]string{consolidationTypeLabel: m.ConsolidationType()})
 			if lastSavedCommand.candidates == nil {
 				log.FromContext(ctx).V(1).Info(fmt.Sprintf("failed to find a multi-node consolidation after timeout, last considered batch had %d", (min+max)/2))
 			} else {
@@ -210,7 +210,10 @@ func filterOutSameType(newNodeClaim *scheduling.NodeClaim, consolidate []*Candid
 	}
 	// swallow the error since we don't allow min values to impact reschedulability in multi node claim
 	newNodeClaim, err := newNodeClaim.RemoveInstanceTypeOptionsByPriceAndMinValues(newNodeClaim.Requirements, maxPrice)
-	return newNodeClaim.InstanceTypeOptions, err
+	if err != nil {
+		return nil, err
+	}
+	return newNodeClaim.InstanceTypeOptions, nil
 }
 
 func (m *MultiNodeConsolidation) Reason() v1.DisruptionReason {
@@ -222,5 +225,5 @@ func (m *MultiNodeConsolidation) Class() string {
 }
 
 func (m *MultiNodeConsolidation) ConsolidationType() string {
-	return "multi"
+	return MultiNodeConsolidationType
 }

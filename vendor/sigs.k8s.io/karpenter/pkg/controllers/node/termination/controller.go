@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/samber/lo"
 	"golang.org/x/time/rate"
 	corev1 "k8s.io/api/core/v1"
@@ -32,6 +31,7 @@ import (
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/utils/clock"
 	controllerruntime "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -88,7 +88,11 @@ func (c *Controller) finalize(ctx context.Context, node *corev1.Node) (reconcile
 	if !controllerutil.ContainsFinalizer(node, v1.TerminationFinalizer) {
 		return reconcile.Result{}, nil
 	}
-	nodeClaims, err := nodeutils.GetNodeClaims(ctx, node, c.kubeClient)
+	if !nodeutils.IsManaged(node, c.cloudProvider) {
+		return reconcile.Result{}, nil
+	}
+
+	nodeClaims, err := nodeutils.GetNodeClaims(ctx, c.kubeClient, node)
 	if err != nil {
 		return reconcile.Result{}, fmt.Errorf("listing nodeclaims, %w", err)
 	}
@@ -129,6 +133,9 @@ func (c *Controller) finalize(ctx context.Context, node *corev1.Node) (reconcile
 
 		return reconcile.Result{RequeueAfter: 1 * time.Second}, nil
 	}
+	NodesDrainedTotal.Inc(map[string]string{
+		metrics.NodePoolLabel: node.Labels[v1.NodePoolLabelKey],
+	})
 	// In order for Pods associated with PersistentVolumes to smoothly migrate from the terminating Node, we wait
 	// for VolumeAttachments of drain-able Pods to be cleaned up before terminating Node and removing its finalizer.
 	// However, if TerminationGracePeriod is configured for Node, and we are past that period, we will skip waiting.
@@ -141,7 +148,7 @@ func (c *Controller) finalize(ctx context.Context, node *corev1.Node) (reconcile
 			return reconcile.Result{RequeueAfter: 1 * time.Second}, nil
 		}
 	}
-	nodeClaims, err = nodeutils.GetNodeClaims(ctx, node, c.kubeClient)
+	nodeClaims, err = nodeutils.GetNodeClaims(ctx, c.kubeClient, node)
 	if err != nil {
 		return reconcile.Result{}, fmt.Errorf("deleting nodeclaims, %w", err)
 	}
@@ -243,13 +250,20 @@ func (c *Controller) removeFinalizer(ctx context.Context, n *corev1.Node) error 
 		if err := c.kubeClient.Patch(ctx, n, client.StrategicMergeFrom(stored)); err != nil {
 			return client.IgnoreNotFound(fmt.Errorf("removing finalizer, %w", err))
 		}
-		metrics.NodesTerminatedTotal.With(prometheus.Labels{
+
+		metrics.NodesTerminatedTotal.Inc(map[string]string{
 			metrics.NodePoolLabel: n.Labels[v1.NodePoolLabelKey],
-		}).Inc()
+		})
+
 		// We use stored.DeletionTimestamp since the api-server may give back a node after the patch without a deletionTimestamp
-		TerminationDurationSeconds.With(prometheus.Labels{
+		DurationSeconds.Observe(time.Since(stored.DeletionTimestamp.Time).Seconds(), map[string]string{
 			metrics.NodePoolLabel: n.Labels[v1.NodePoolLabelKey],
-		}).Observe(time.Since(stored.DeletionTimestamp.Time).Seconds())
+		})
+
+		NodeLifetimeDurationSeconds.Observe(time.Since(n.CreationTimestamp.Time).Seconds(), map[string]string{
+			metrics.NodePoolLabel: n.Labels[v1.NodePoolLabelKey],
+		})
+
 		log.FromContext(ctx).Info("deleted node")
 	}
 	return nil
@@ -274,13 +288,13 @@ func (c *Controller) nodeTerminationTime(node *corev1.Node, nodeClaims ...*v1.No
 func (c *Controller) Register(_ context.Context, m manager.Manager) error {
 	return controllerruntime.NewControllerManagedBy(m).
 		Named("node.termination").
-		For(&corev1.Node{}).
+		For(&corev1.Node{}, builder.WithPredicates(nodeutils.IsManagedPredicateFuncs(c.cloudProvider))).
 		WithOptions(
 			controller.Options{
-				RateLimiter: workqueue.NewMaxOfRateLimiter(
-					workqueue.NewItemExponentialFailureRateLimiter(100*time.Millisecond, 10*time.Second),
+				RateLimiter: workqueue.NewTypedMaxOfRateLimiter[reconcile.Request](
+					workqueue.NewTypedItemExponentialFailureRateLimiter[reconcile.Request](100*time.Millisecond, 10*time.Second),
 					// 10 qps, 100 bucket size
-					&workqueue.BucketRateLimiter{Limiter: rate.NewLimiter(rate.Limit(10), 100)},
+					&workqueue.TypedBucketRateLimiter[reconcile.Request]{Limiter: rate.NewLimiter(rate.Limit(10), 100)},
 				),
 				MaxConcurrentReconciles: 100,
 			},

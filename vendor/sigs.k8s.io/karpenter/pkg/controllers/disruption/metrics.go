@@ -17,21 +17,12 @@ limitations under the License.
 package disruption
 
 import (
+	opmetrics "github.com/awslabs/operatorpkg/metrics"
 	"github.com/prometheus/client_golang/prometheus"
 	crmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 
 	"sigs.k8s.io/karpenter/pkg/metrics"
 )
-
-func init() {
-	crmetrics.Registry.MustRegister(
-		EvaluationDurationSeconds,
-		DecisionsPerformedTotal,
-		EligibleNodes,
-		ConsolidationTimeoutsTotal,
-		NodePoolAllowedDisruptions,
-	)
-}
 
 const (
 	voluntaryDisruptionSubsystem = "voluntary_disruption"
@@ -39,8 +30,14 @@ const (
 	consolidationTypeLabel       = "consolidation_type"
 )
 
+func init() {
+	ConsolidationTimeoutsTotal.Add(0, map[string]string{consolidationTypeLabel: MultiNodeConsolidationType})
+	ConsolidationTimeoutsTotal.Add(0, map[string]string{consolidationTypeLabel: SingleNodeConsolidationType})
+}
+
 var (
-	EvaluationDurationSeconds = prometheus.NewHistogramVec(
+	EvaluationDurationSeconds = opmetrics.NewPrometheusHistogram(
+		crmetrics.Registry,
 		prometheus.HistogramOpts{
 			Namespace: metrics.Namespace,
 			Subsystem: voluntaryDisruptionSubsystem,
@@ -50,7 +47,8 @@ var (
 		},
 		[]string{metrics.ReasonLabel, consolidationTypeLabel},
 	)
-	DecisionsPerformedTotal = prometheus.NewCounterVec(
+	DecisionsPerformedTotal = opmetrics.NewPrometheusCounter(
+		crmetrics.Registry,
 		prometheus.CounterOpts{
 			Namespace: metrics.Namespace,
 			Subsystem: voluntaryDisruptionSubsystem,
@@ -59,7 +57,8 @@ var (
 		},
 		[]string{decisionLabel, metrics.ReasonLabel, consolidationTypeLabel},
 	)
-	EligibleNodes = prometheus.NewGaugeVec(
+	EligibleNodes = opmetrics.NewPrometheusGauge(
+		crmetrics.Registry,
 		prometheus.GaugeOpts{
 			Namespace: metrics.Namespace,
 			Subsystem: voluntaryDisruptionSubsystem,
@@ -68,7 +67,8 @@ var (
 		},
 		[]string{metrics.ReasonLabel},
 	)
-	ConsolidationTimeoutsTotal = prometheus.NewCounterVec(
+	ConsolidationTimeoutsTotal = opmetrics.NewPrometheusCounter(
+		crmetrics.Registry,
 		prometheus.CounterOpts{
 			Namespace: metrics.Namespace,
 			Subsystem: voluntaryDisruptionSubsystem,
@@ -77,7 +77,8 @@ var (
 		},
 		[]string{consolidationTypeLabel},
 	)
-	NodePoolAllowedDisruptions = prometheus.NewGaugeVec(
+	NodePoolAllowedDisruptions = opmetrics.NewPrometheusGauge(
+		crmetrics.Registry,
 		prometheus.GaugeOpts{
 			Namespace: metrics.Namespace,
 			Subsystem: metrics.NodePoolSubsystem,

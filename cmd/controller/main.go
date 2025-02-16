@@ -18,6 +18,7 @@ import (
 	"github.com/samber/lo"
 	"sigs.k8s.io/karpenter/pkg/cloudprovider/metrics"
 	corecontrollers "sigs.k8s.io/karpenter/pkg/controllers"
+	"sigs.k8s.io/karpenter/pkg/controllers/state"
 	coreoperator "sigs.k8s.io/karpenter/pkg/operator"
 
 	"github.com/cloudpilot-ai/karpenter-provider-alibabacloud/pkg/cloudprovider"
@@ -37,6 +38,7 @@ func main() {
 
 	lo.Must0(op.AddHealthzCheck("cloud-provider", aliCloudProvider.LivenessProbe))
 	cloudProvider := metrics.Decorate(aliCloudProvider)
+	clusterState := state.NewCluster(op.Clock, op.GetClient(), cloudProvider)
 
 	op.
 		WithControllers(ctx, corecontrollers.NewControllers(
@@ -46,6 +48,7 @@ func main() {
 			op.GetClient(),
 			op.EventRecorder,
 			cloudProvider,
+			clusterState,
 		)...).
 		WithControllers(ctx, controllers.NewControllers(
 			ctx, op.Manager, op.Clock, op.GetConfig(),
@@ -56,5 +59,5 @@ func main() {
 			op.PricingProvider, op.VSwitchProvider,
 			op.SecurityGroupProvider, op.ImageProvider,
 		)...).
-		Start(ctx, cloudProvider)
+		Start(ctx)
 }

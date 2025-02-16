@@ -24,10 +24,8 @@ import (
 	"time"
 
 	"github.com/awslabs/operatorpkg/option"
-	"github.com/awslabs/operatorpkg/status"
-
 	"github.com/awslabs/operatorpkg/singleton"
-	"github.com/prometheus/client_golang/prometheus"
+	"github.com/awslabs/operatorpkg/status"
 	"github.com/samber/lo"
 	"go.uber.org/multierr"
 	appsv1 "k8s.io/api/apps/v1"
@@ -36,26 +34,24 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/clock"
 	controllerruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	"sigs.k8s.io/karpenter/pkg/operator/injection"
-
-	nodeutil "sigs.k8s.io/karpenter/pkg/utils/node"
-
-	"sigs.k8s.io/controller-runtime/pkg/log"
-
 	v1 "sigs.k8s.io/karpenter/pkg/apis/v1"
-	"sigs.k8s.io/karpenter/pkg/scheduling"
-	"sigs.k8s.io/karpenter/pkg/utils/pretty"
-
 	"sigs.k8s.io/karpenter/pkg/cloudprovider"
 	scheduler "sigs.k8s.io/karpenter/pkg/controllers/provisioning/scheduling"
 	"sigs.k8s.io/karpenter/pkg/controllers/state"
 	"sigs.k8s.io/karpenter/pkg/events"
 	"sigs.k8s.io/karpenter/pkg/metrics"
+	"sigs.k8s.io/karpenter/pkg/operator/injection"
+	"sigs.k8s.io/karpenter/pkg/scheduling"
+	nodeutils "sigs.k8s.io/karpenter/pkg/utils/node"
+	nodepoolutils "sigs.k8s.io/karpenter/pkg/utils/nodepool"
+	"sigs.k8s.io/karpenter/pkg/utils/pretty"
 )
 
 // LaunchOptions are the set of options that can be used to trigger certain
@@ -78,30 +74,33 @@ func WithReason(reason string) func(*LaunchOptions) {
 type Provisioner struct {
 	cloudProvider  cloudprovider.CloudProvider
 	kubeClient     client.Client
-	batcher        *Batcher
+	batcher        *Batcher[types.UID]
 	volumeTopology *scheduler.VolumeTopology
 	cluster        *state.Cluster
 	recorder       events.Recorder
 	cm             *pretty.ChangeMonitor
+	clock          clock.Clock
 }
 
 func NewProvisioner(kubeClient client.Client, recorder events.Recorder,
 	cloudProvider cloudprovider.CloudProvider, cluster *state.Cluster,
+	clock clock.Clock,
 ) *Provisioner {
 	p := &Provisioner{
-		batcher:        NewBatcher(),
+		batcher:        NewBatcher[types.UID](clock),
 		cloudProvider:  cloudProvider,
 		kubeClient:     kubeClient,
 		volumeTopology: scheduler.NewVolumeTopology(kubeClient),
 		cluster:        cluster,
 		recorder:       recorder,
 		cm:             pretty.NewChangeMonitor(),
+		clock:          clock,
 	}
 	return p
 }
 
-func (p *Provisioner) Trigger() {
-	p.batcher.Trigger()
+func (p *Provisioner) Trigger(uid types.UID) {
+	p.batcher.Trigger(uid)
 }
 
 func (p *Provisioner) Register(_ context.Context, m manager.Manager) error {
@@ -160,17 +159,18 @@ func (p *Provisioner) CreateNodeClaims(ctx context.Context, nodeClaims []*schedu
 func (p *Provisioner) GetPendingPods(ctx context.Context) ([]*corev1.Pod, error) {
 	// filter for provisionable pods first, so we don't check for validity/PVCs on pods we won't provision anyway
 	// (e.g. those owned by daemonsets)
-	pods, err := nodeutil.GetProvisionablePods(ctx, p.kubeClient)
+	pods, err := nodeutils.GetProvisionablePods(ctx, p.kubeClient)
 	if err != nil {
 		return nil, fmt.Errorf("listing pods, %w", err)
 	}
-	pods = lo.Reject(pods, func(po *corev1.Pod, _ int) bool {
+	rejectedPods, pods := lo.FilterReject(pods, func(po *corev1.Pod, _ int) bool {
 		if err := p.Validate(ctx, po); err != nil {
 			log.FromContext(ctx).WithValues("Pod", klog.KRef(po.Namespace, po.Name)).V(1).Info(fmt.Sprintf("ignoring pod, %s", err))
 			return true
 		}
 		return false
 	})
+	scheduler.IgnoredPodCount.Set(float64(len(rejectedPods)), nil)
 	p.consolidationWarnings(ctx, pods)
 	return pods, nil
 }
@@ -213,53 +213,48 @@ var ErrNodePoolsNotFound = errors.New("no nodepools found")
 
 //nolint:gocyclo
 func (p *Provisioner) NewScheduler(ctx context.Context, pods []*corev1.Pod, stateNodes []*state.StateNode) (*scheduler.Scheduler, error) {
-	nodePoolList := &v1.NodePoolList{}
-	err := p.kubeClient.List(ctx, nodePoolList)
+	nodePools, err := nodepoolutils.ListManaged(ctx, p.kubeClient, p.cloudProvider)
 	if err != nil {
-		return nil, fmt.Errorf("listing node pools, %w", err)
+		return nil, fmt.Errorf("listing nodepools, %w", err)
 	}
-	nodePoolList.Items = lo.Filter(nodePoolList.Items, func(n v1.NodePool, _ int) bool {
-		if !n.StatusConditions().IsTrue(status.ConditionReady) {
-			log.FromContext(ctx).WithValues("NodePool", klog.KRef("", n.Name)).Error(err, "nodePool not ready")
+	nodePools = lo.Filter(nodePools, func(np *v1.NodePool, _ int) bool {
+		if !np.StatusConditions().IsTrue(status.ConditionReady) {
+			log.FromContext(ctx).WithValues("NodePool", klog.KRef("", np.Name)).Error(err, "ignoring nodepool, not ready")
 			return false
 		}
-		return n.DeletionTimestamp.IsZero()
+		return np.DeletionTimestamp.IsZero()
 	})
-	if len(nodePoolList.Items) == 0 {
+	if len(nodePools) == 0 {
 		return nil, ErrNodePoolsNotFound
 	}
 
 	// nodeTemplates generated from NodePools are ordered by weight
 	// since they are stored within a slice and scheduling
 	// will always attempt to schedule on the first nodeTemplate
-	nodePoolList.OrderByWeight()
+	nodepoolutils.OrderByWeight(nodePools)
 
 	instanceTypes := map[string][]*cloudprovider.InstanceType{}
 	domains := map[string]sets.Set[string]{}
-	var notReadyNodePools []string
-	for _, nodePool := range nodePoolList.Items {
-		// Get instance type options
-		instanceTypeOptions, err := p.cloudProvider.GetInstanceTypes(ctx, lo.ToPtr(nodePool))
+	for _, np := range nodePools {
+		its, err := p.cloudProvider.GetInstanceTypes(ctx, np)
 		if err != nil {
-			// we just log an error and skip the provisioner to prevent a single mis-configured provisioner from stopping
-			// all scheduling
-			log.FromContext(ctx).WithValues("NodePool", klog.KRef("", nodePool.Name)).Error(err, "skipping, unable to resolve instance types")
+			log.FromContext(ctx).WithValues("NodePool", klog.KRef("", np.Name)).Error(err, "skipping, unable to resolve instance types")
 			continue
 		}
-		if len(instanceTypeOptions) == 0 {
-			log.FromContext(ctx).WithValues("NodePool", klog.KRef("", nodePool.Name)).Info("skipping, no resolved instance types found")
+		if len(its) == 0 {
+			log.FromContext(ctx).WithValues("NodePool", klog.KRef("", np.Name)).Info("skipping, no resolved instance types found")
+			continue
+		}
 
-			continue
-		}
-		instanceTypes[nodePool.Name] = append(instanceTypes[nodePool.Name], instanceTypeOptions...)
+		instanceTypes[np.Name] = its
 
 		// Construct Topology Domains
-		for _, instanceType := range instanceTypeOptions {
+		for _, it := range its {
 			// We need to intersect the instance type requirements with the current nodePool requirements.  This
 			// ensures that something like zones from an instance type don't expand the universe of valid domains.
-			requirements := scheduling.NewNodeSelectorRequirementsWithMinValues(nodePool.Spec.Template.Spec.Requirements...)
-			requirements.Add(scheduling.NewLabelRequirements(nodePool.Spec.Template.Labels).Values()...)
-			requirements.Add(instanceType.Requirements.Values()...)
+			requirements := scheduling.NewNodeSelectorRequirementsWithMinValues(np.Spec.Template.Spec.Requirements...)
+			requirements.Add(scheduling.NewLabelRequirements(np.Spec.Template.Labels).Values()...)
+			requirements.Add(it.Requirements.Values()...)
 
 			for key, requirement := range requirements {
 				// This code used to execute a Union between domains[key] and requirement.Values().
@@ -274,8 +269,8 @@ func (p *Provisioner) NewScheduler(ctx context.Context, pods []*corev1.Pod, stat
 			}
 		}
 
-		requirements := scheduling.NewNodeSelectorRequirementsWithMinValues(nodePool.Spec.Template.Spec.Requirements...)
-		requirements.Add(scheduling.NewLabelRequirements(nodePool.Spec.Template.Labels).Values()...)
+		requirements := scheduling.NewNodeSelectorRequirementsWithMinValues(np.Spec.Template.Spec.Requirements...)
+		requirements.Add(scheduling.NewLabelRequirements(np.Spec.Template.Labels).Values()...)
 		for key, requirement := range requirements {
 			if requirement.Operator() == corev1.NodeSelectorOpIn {
 				// The following is a performance optimisation, for the explanation see the comment above
@@ -287,9 +282,7 @@ func (p *Provisioner) NewScheduler(ctx context.Context, pods []*corev1.Pod, stat
 			}
 		}
 	}
-	if len(notReadyNodePools) > 0 {
-		log.FromContext(ctx).WithValues("nodePools", nodePoolList).Info("skipped nodePools, not ready")
-	}
+
 	// inject topology constraints
 	pods = p.injectVolumeTopologyRequirements(ctx, pods)
 
@@ -302,13 +295,11 @@ func (p *Provisioner) NewScheduler(ctx context.Context, pods []*corev1.Pod, stat
 	if err != nil {
 		return nil, fmt.Errorf("getting daemon pods, %w", err)
 	}
-	return scheduler.NewScheduler(p.kubeClient, lo.ToSlicePtr(nodePoolList.Items), p.cluster, stateNodes, topology, instanceTypes, daemonSetPods, p.recorder), nil
+	return scheduler.NewScheduler(ctx, p.kubeClient, nodePools, p.cluster, stateNodes, topology, instanceTypes, daemonSetPods, p.recorder, p.clock), nil
 }
 
 func (p *Provisioner) Schedule(ctx context.Context) (scheduler.Results, error) {
-	defer metrics.Measure(scheduler.SchedulingDurationSeconds.With(
-		prometheus.Labels{scheduler.ControllerLabel: injection.GetControllerName(ctx)},
-	))()
+	defer metrics.Measure(scheduler.DurationSeconds, map[string]string{scheduler.ControllerLabel: injection.GetControllerName(ctx)})()
 	start := time.Now()
 
 	// We collect the nodes with their used capacities before we get the list of pending pods. This ensures that
@@ -327,6 +318,7 @@ func (p *Provisioner) Schedule(ctx context.Context) (scheduler.Results, error) {
 	if err != nil {
 		return scheduler.Results{}, err
 	}
+
 	// Get pods from nodes that are preparing for deletion
 	// We do this after getting the pending pods so that we undershoot if pods are
 	// actively migrating from a node that is being deleted
@@ -349,9 +341,12 @@ func (p *Provisioner) Schedule(ctx context.Context) (scheduler.Results, error) {
 		return scheduler.Results{}, fmt.Errorf("creating scheduler, %w", err)
 	}
 	results := s.Solve(ctx, pods).TruncateInstanceTypes(scheduler.MaxInstanceTypes)
+	scheduler.UnschedulablePodsCount.Set(float64(len(results.PodErrors)), map[string]string{scheduler.ControllerLabel: injection.GetControllerName(ctx)})
 	if len(results.NewNodeClaims) > 0 {
 		log.FromContext(ctx).WithValues("Pods", pretty.Slice(lo.Map(pods, func(p *corev1.Pod, _ int) string { return klog.KRef(p.Namespace, p.Name).String() }), 5), "duration", time.Since(start)).Info("found provisionable pod(s)")
 	}
+	// Mark in memory when these pods were marked as schedulable or when we made a decision on the pods
+	p.cluster.MarkPodSchedulingDecisions(results.PodErrors, pendingPods...)
 	results.Record(ctx, p.recorder, p.cluster)
 	return results, nil
 }
@@ -366,7 +361,7 @@ func (p *Provisioner) Create(ctx context.Context, n *scheduler.NodeClaim, opts .
 	if err := latest.Spec.Limits.ExceededBy(latest.Status.Resources); err != nil {
 		return "", err
 	}
-	nodeClaim := n.ToNodeClaim(latest)
+	nodeClaim := n.ToNodeClaim()
 
 	if err := p.kubeClient.Create(ctx, nodeClaim); err != nil {
 		return "", err
@@ -377,11 +372,11 @@ func (p *Provisioner) Create(ctx context.Context, n *scheduler.NodeClaim, opts .
 
 	log.FromContext(ctx).WithValues("NodeClaim", klog.KRef("", nodeClaim.Name), "requests", nodeClaim.Spec.Resources.Requests, "instance-types", instanceTypeList(instanceTypeRequirement.Values)).
 		Info("created nodeclaim")
-	metrics.NodeClaimsCreatedTotal.With(prometheus.Labels{
+	metrics.NodeClaimsCreatedTotal.Inc(map[string]string{
 		metrics.ReasonLabel:       options.Reason,
 		metrics.NodePoolLabel:     nodeClaim.Labels[v1.NodePoolLabelKey],
 		metrics.CapacityTypeLabel: nodeClaim.Labels[v1.CapacityTypeLabelKey],
-	}).Inc()
+	})
 	// Update the nodeclaim manually in state to avoid evenutal consistency delay races with our watcher.
 	// This is essential to avoiding races where disruption can create a replacement node, then immediately
 	// requeue. This can race with controller-runtime's internal cache as it watches events on the cluster

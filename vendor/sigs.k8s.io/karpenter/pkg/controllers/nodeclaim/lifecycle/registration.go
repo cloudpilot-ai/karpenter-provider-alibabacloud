@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/samber/lo"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -34,7 +33,7 @@ import (
 	v1 "sigs.k8s.io/karpenter/pkg/apis/v1"
 	"sigs.k8s.io/karpenter/pkg/metrics"
 	"sigs.k8s.io/karpenter/pkg/scheduling"
-	nodeclaimutil "sigs.k8s.io/karpenter/pkg/utils/nodeclaim"
+	nodeclaimutils "sigs.k8s.io/karpenter/pkg/utils/nodeclaim"
 )
 
 type Registration struct {
@@ -42,17 +41,19 @@ type Registration struct {
 }
 
 func (r *Registration) Reconcile(ctx context.Context, nodeClaim *v1.NodeClaim) (reconcile.Result, error) {
-	if !nodeClaim.StatusConditions().Get(v1.ConditionTypeRegistered).IsUnknown() {
+	if cond := nodeClaim.StatusConditions().Get(v1.ConditionTypeRegistered); !cond.IsUnknown() {
+		// Ensure that we always set the status condition to the latest generation
+		nodeClaim.StatusConditions().Set(*cond)
 		return reconcile.Result{}, nil
 	}
 	ctx = log.IntoContext(ctx, log.FromContext(ctx).WithValues("provider-id", nodeClaim.Status.ProviderID))
-	node, err := nodeclaimutil.NodeForNodeClaim(ctx, r.kubeClient, nodeClaim)
+	node, err := nodeclaimutils.NodeForNodeClaim(ctx, r.kubeClient, nodeClaim)
 	if err != nil {
-		if nodeclaimutil.IsNodeNotFoundError(err) {
+		if nodeclaimutils.IsNodeNotFoundError(err) {
 			nodeClaim.StatusConditions().SetUnknownWithReason(v1.ConditionTypeRegistered, "NodeNotFound", "Node not registered with cluster")
 			return reconcile.Result{}, nil
 		}
-		if nodeclaimutil.IsDuplicateNodeError(err) {
+		if nodeclaimutils.IsDuplicateNodeError(err) {
 			nodeClaim.StatusConditions().SetFalse(v1.ConditionTypeRegistered, "MultipleNodesFound", "Invariant violated, matched multiple nodes")
 			return reconcile.Result{}, nil
 		}
@@ -78,9 +79,9 @@ func (r *Registration) Reconcile(ctx context.Context, nodeClaim *v1.NodeClaim) (
 	nodeClaim.StatusConditions().SetTrue(v1.ConditionTypeRegistered)
 	nodeClaim.Status.NodeName = node.Name
 
-	metrics.NodesCreatedTotal.With(prometheus.Labels{
+	metrics.NodesCreatedTotal.Inc(map[string]string{
 		metrics.NodePoolLabel: nodeClaim.Labels[v1.NodePoolLabelKey],
-	}).Inc()
+	})
 	return reconcile.Result{}, nil
 }
 
@@ -88,7 +89,7 @@ func (r *Registration) syncNode(ctx context.Context, nodeClaim *v1.NodeClaim, no
 	stored := node.DeepCopy()
 	controllerutil.AddFinalizer(node, v1.TerminationFinalizer)
 
-	node = nodeclaimutil.UpdateNodeOwnerReferences(nodeClaim, node)
+	node = nodeclaimutils.UpdateNodeOwnerReferences(nodeClaim, node)
 	node.Labels = lo.Assign(node.Labels, nodeClaim.Labels)
 	node.Annotations = lo.Assign(node.Annotations, nodeClaim.Annotations)
 	// Sync all taints inside NodeClaim into the Node taints

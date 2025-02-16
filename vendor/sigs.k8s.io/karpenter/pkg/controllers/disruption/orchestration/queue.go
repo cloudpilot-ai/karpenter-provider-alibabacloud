@@ -25,20 +25,15 @@ import (
 	"time"
 
 	"github.com/awslabs/operatorpkg/singleton"
-	controllerruntime "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/log"
-
-	"sigs.k8s.io/karpenter/pkg/operator/injection"
-
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/samber/lo"
 	"go.uber.org/multierr"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/utils/clock"
+	controllerruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllertest"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -48,6 +43,8 @@ import (
 	"sigs.k8s.io/karpenter/pkg/controllers/state"
 	"sigs.k8s.io/karpenter/pkg/events"
 	"sigs.k8s.io/karpenter/pkg/metrics"
+	"sigs.k8s.io/karpenter/pkg/operator/injection"
+	"sigs.k8s.io/karpenter/pkg/utils/pretty"
 )
 
 const (
@@ -126,11 +123,12 @@ func NewQueue(kubeClient client.Client, recorder events.Recorder, cluster *state
 	provisioner *provisioning.Provisioner,
 ) *Queue {
 	queue := &Queue{
+		// nolint:staticcheck
+		// We need to implement a deprecated interface since Command currently doesn't implement "comparable"
 		RateLimitingInterface: workqueue.NewRateLimitingQueueWithConfig(
 			workqueue.NewItemExponentialFailureRateLimiter(queueBaseDelay, queueMaxDelay),
 			workqueue.RateLimitingQueueConfig{
-				Name:            "disruption.workqueue",
-				MetricsProvider: metrics.WorkqueueMetricsProvider{},
+				Name: "disruption.workqueue",
 			}),
 		providerIDToCommand: map[string]*Command{},
 		kubeClient:          kubeClient,
@@ -138,22 +136,6 @@ func NewQueue(kubeClient client.Client, recorder events.Recorder, cluster *state
 		cluster:             cluster,
 		clock:               clock,
 		provisioner:         provisioner,
-	}
-	return queue
-}
-
-// NewTestingQueue uses a test RateLimitingInterface that will immediately re-queue items.
-func NewTestingQueue(kubeClient client.Client, recorder events.Recorder, cluster *state.Cluster, clock clock.Clock,
-	provisioner *provisioning.Provisioner,
-) *Queue {
-	queue := &Queue{
-		RateLimitingInterface: &controllertest.Queue{Interface: workqueue.New()},
-		providerIDToCommand:   map[string]*Command{},
-		kubeClient:            kubeClient,
-		recorder:              recorder,
-		cluster:               cluster,
-		clock:                 clock,
-		provisioner:           provisioner,
 	}
 	return queue
 }
@@ -213,12 +195,13 @@ func (q *Queue) Reconcile(ctx context.Context) (reconcile.Result, error) {
 		failedLaunches := lo.Filter(cmd.Replacements, func(r Replacement, _ int) bool {
 			return !r.Initialized
 		})
-		disruptionQueueFailuresTotal.With(map[string]string{
+		DisruptionQueueFailuresTotal.Add(float64(len(failedLaunches)), map[string]string{
 			decisionLabel:          cmd.Decision(),
-			metrics.ReasonLabel:    string(cmd.reason),
+			metrics.ReasonLabel:    pretty.ToSnakeCase(string(cmd.reason)),
 			consolidationTypeLabel: cmd.consolidationType,
-		}).Add(float64(len(failedLaunches)))
+		})
 		multiErr := multierr.Combine(err, cmd.lastError, state.RequireNoScheduleTaint(ctx, q.kubeClient, false, cmd.candidates...))
+		multiErr = multierr.Combine(multiErr, state.ClearNodeClaimsCondition(ctx, q.kubeClient, v1.ConditionTypeDisruptionReason, cmd.candidates...))
 		// Log the error
 		log.FromContext(ctx).WithValues("nodes", strings.Join(lo.Map(cmd.candidates, func(s *state.StateNode, _ int) string {
 			return s.Name()
@@ -283,11 +266,11 @@ func (q *Queue) waitOrTerminate(ctx context.Context, cmd *Command) error {
 		if err := q.kubeClient.Delete(ctx, candidate.NodeClaim); err != nil {
 			multiErr = multierr.Append(multiErr, client.IgnoreNotFound(err))
 		} else {
-			metrics.NodeClaimsDisruptedTotal.With(prometheus.Labels{
-				metrics.ReasonLabel:       string(cmd.reason),
+			metrics.NodeClaimsDisruptedTotal.Inc(map[string]string{
+				metrics.ReasonLabel:       pretty.ToSnakeCase(string(cmd.reason)),
 				metrics.NodePoolLabel:     cmd.candidates[i].NodeClaim.Labels[v1.NodePoolLabelKey],
 				metrics.CapacityTypeLabel: cmd.candidates[i].NodeClaim.Labels[v1.CapacityTypeLabelKey],
-			}).Inc()
+			})
 		}
 	}
 	// If there were any deletion failures, we should requeue.
@@ -344,14 +327,6 @@ func (q *Queue) Remove(cmd *Command) {
 		delete(q.providerIDToCommand, candidate.ProviderID())
 	}
 	q.mu.Unlock()
-}
-
-// Reset is used for testing and clears all internal data structures
-func (q *Queue) Reset() {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	q.RateLimitingInterface = &controllertest.Queue{Interface: workqueue.New()}
-	q.providerIDToCommand = map[string]*Command{}
 }
 
 func (q *Queue) IsEmpty() bool {

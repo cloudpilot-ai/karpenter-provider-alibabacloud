@@ -14,45 +14,42 @@ import (
 // This package adds client-go metrics that can be surfaced through the Prometheus metrics server
 // This is based on the reference implementation that was pulled out in controller-runtime in https://github.com/kubernetes-sigs/controller-runtime/pull/2298
 
-var (
-	requestResult = prometheus.NewCounterVec(
+// RegisterClientMetrics sets up the client latency and result metrics from client-go.
+func RegisterClientMetrics(r prometheus.Registerer) {
+	clientmetrics.RequestLatency = &LatencyAdapter{Metric: NewPrometheusHistogram(
+		r,
+		prometheus.HistogramOpts{
+			Name:    "client_go_request_duration_seconds",
+			Help:    "Request latency in seconds. Broken down by verb, group, version, kind, and subresource.",
+			Buckets: prometheus.ExponentialBuckets(0.001, 1.5, 20),
+		},
+		[]string{"verb", "group", "version", "kind", "subresource"},
+	)}
+	clientmetrics.RequestResult = &ResultAdapter{Metric: NewPrometheusCounter(
+		r,
 		prometheus.CounterOpts{
 			Name: "client_go_request_total",
 			Help: "Number of HTTP requests, partitioned by status code and method.",
 		},
 		[]string{"code", "method"},
-	)
-	requestLatency = prometheus.NewHistogramVec(prometheus.HistogramOpts{
-		Name:    "client_go_request_duration_seconds",
-		Help:    "Request latency in seconds. Broken down by verb, group, version, kind, and subresource.",
-		Buckets: prometheus.ExponentialBuckets(0.001, 1.5, 20),
-	}, []string{"verb", "group", "version", "kind", "subresource"})
-)
-
-// RegisterClientMetrics sets up the client latency and result metrics from client-go.
-func RegisterClientMetrics(r prometheus.Registerer) {
-	// register the metrics with our registry
-	r.MustRegister(requestResult, requestLatency)
-
-	clientmetrics.RequestLatency = &latencyAdapter{metric: requestLatency}
-	clientmetrics.RequestResult = &resultAdapter{metric: requestResult}
+	)}
 }
 
-type resultAdapter struct {
-	metric *prometheus.CounterVec
+type ResultAdapter struct {
+	Metric CounterMetric
 }
 
-func (r *resultAdapter) Increment(_ context.Context, code, method, _ string) {
-	r.metric.WithLabelValues(code, method).Inc()
+func (r *ResultAdapter) Increment(_ context.Context, code, method, _ string) {
+	r.Metric.Inc(map[string]string{"code": code, "method": method})
 }
 
-// latencyAdapter implements LatencyMetric.
-type latencyAdapter struct {
-	metric *prometheus.HistogramVec
+// LatencyAdapter implements LatencyMetric.
+type LatencyAdapter struct {
+	Metric ObservationMetric
 }
 
 // Observe increments the request latency metric for the given verb/group/version/kind/subresource.
-func (l *latencyAdapter) Observe(_ context.Context, verb string, u url.URL, latency time.Duration) {
+func (l *LatencyAdapter) Observe(_ context.Context, verb string, u url.URL, latency time.Duration) {
 	if data := parsePath(u.Path); data != nil {
 		// We update the "verb" to better reflect the action being taken by client-go
 		switch verb {
@@ -69,13 +66,13 @@ func (l *latencyAdapter) Observe(_ context.Context, verb string, u url.URL, late
 				verb = "UPDATE"
 			}
 		}
-		l.metric.With(prometheus.Labels{
+		l.Metric.Observe(latency.Seconds(), map[string]string{
 			"verb":        verb,
 			"group":       data.group,
 			"version":     data.version,
 			"kind":        data.kind,
 			"subresource": data.subresource,
-		}).Observe(latency.Seconds())
+		})
 	}
 }
 
