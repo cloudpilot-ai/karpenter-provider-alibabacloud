@@ -38,7 +38,7 @@ import (
 
 	"github.com/cloudpilot-ai/karpenter-provider-alibabacloud/pkg/apis/v1alpha1"
 	kcache "github.com/cloudpilot-ai/karpenter-provider-alibabacloud/pkg/cache"
-	"github.com/cloudpilot-ai/karpenter-provider-alibabacloud/pkg/providers/ack"
+	"github.com/cloudpilot-ai/karpenter-provider-alibabacloud/pkg/providers/cluster"
 	"github.com/cloudpilot-ai/karpenter-provider-alibabacloud/pkg/providers/pricing"
 	"github.com/cloudpilot-ai/karpenter-provider-alibabacloud/pkg/utils/alierrors"
 )
@@ -54,7 +54,7 @@ type DefaultProvider struct {
 	region          string
 	ecsClient       *ecsclient.Client
 	pricingProvider pricing.Provider
-	ackProvider     ack.Provider
+	ackProvider     cluster.Provider
 
 	// Values stored *before* considering insufficient capacity errors from the unavailableOfferings cache.
 	// Fully initialized Instance Types are also cached based on the set of all instance types, zones, unavailableOfferings cache,
@@ -80,7 +80,7 @@ type DefaultProvider struct {
 
 func NewDefaultProvider(region string, ecsClient *ecsclient.Client,
 	instanceTypesCache *cache.Cache, unavailableOfferingsCache *kcache.UnavailableOfferings,
-	pricingProvider pricing.Provider, ackProvider ack.Provider) *DefaultProvider {
+	pricingProvider pricing.Provider, ackProvider cluster.Provider) *DefaultProvider {
 	return &DefaultProvider{
 		ecsClient:                  ecsClient,
 		region:                     region,

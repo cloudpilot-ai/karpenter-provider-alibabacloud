@@ -45,7 +45,7 @@ import (
 	"github.com/cloudpilot-ai/karpenter-provider-alibabacloud/pkg/apis/v1alpha1"
 	kcache "github.com/cloudpilot-ai/karpenter-provider-alibabacloud/pkg/cache"
 	"github.com/cloudpilot-ai/karpenter-provider-alibabacloud/pkg/operator/options"
-	"github.com/cloudpilot-ai/karpenter-provider-alibabacloud/pkg/providers/ack"
+	"github.com/cloudpilot-ai/karpenter-provider-alibabacloud/pkg/providers/cluster"
 	"github.com/cloudpilot-ai/karpenter-provider-alibabacloud/pkg/providers/imagefamily"
 	"github.com/cloudpilot-ai/karpenter-provider-alibabacloud/pkg/providers/vswitch"
 	"github.com/cloudpilot-ai/karpenter-provider-alibabacloud/pkg/utils/alierrors"
@@ -75,13 +75,13 @@ type DefaultProvider struct {
 
 	imageFamilyResolver imagefamily.Resolver
 	vSwitchProvider     vswitch.Provider
-	ackProvider         ack.Provider
+	ackProvider         cluster.Provider
 	createLimiter       *rate.Limiter
 }
 
 func NewDefaultProvider(ctx context.Context, region string, ecsClient *ecsclient.Client, unavailableOfferings *kcache.UnavailableOfferings,
 	imageFamilyResolver imagefamily.Resolver, vSwitchProvider vswitch.Provider,
-	ackProvider ack.Provider,
+	ackProvider cluster.Provider,
 ) *DefaultProvider {
 	p := &DefaultProvider{
 		ecsClient:            ecsClient,
@@ -485,15 +485,6 @@ func mapToInstanceTypes(instanceTypes []*cloudprovider.InstanceType, images []v1
 	return imageIDs
 }
 
-func resolveKubeletConfiguration(nodeClass *v1alpha1.ECSNodeClass) *v1alpha1.KubeletConfiguration {
-	kubeletConfig := nodeClass.Spec.KubeletConfiguration
-	if kubeletConfig == nil {
-		kubeletConfig = &v1alpha1.KubeletConfiguration{}
-	}
-
-	return kubeletConfig
-}
-
 //nolint:gocyclo
 func (p *DefaultProvider) getProvisioningGroup(ctx context.Context, nodeClass *v1alpha1.ECSNodeClass, nodeClaim *karpv1.NodeClaim,
 	instanceTypes []*cloudprovider.InstanceType, zonalVSwitchs map[string]*vswitch.VSwitch, capacityType string, tags map[string]string,
@@ -540,8 +531,7 @@ func (p *DefaultProvider) getProvisioningGroup(ctx context.Context, nodeClass *v
 		})
 	}
 
-	kubeletCfg := resolveKubeletConfiguration(nodeClass)
-	userData, err := p.ackProvider.GetNodeRegisterScript(ctx, capacityType, nodeClaim, kubeletCfg, nodeClass.Spec.UserData)
+	userData, err := p.imageFamilyResolver.BuildUserData(ctx, capacityType, nodeClass, nodeClaim, &imagefamily.Options{ACKProvider: p.ackProvider})
 	if err != nil {
 		log.FromContext(ctx).Error(err, "Failed to resolve user data for node")
 		return nil, err

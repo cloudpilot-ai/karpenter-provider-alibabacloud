@@ -16,19 +16,36 @@ limitations under the License.
 
 package imagefamily
 
-import "strings"
+import (
+	"context"
+	"strings"
 
-type ContainerOS struct{}
+	corev1 "k8s.io/api/core/v1"
 
-func (c *ContainerOS) ResolveImages(images Images) Images {
+	"github.com/cloudpilot-ai/karpenter-provider-alibabacloud/pkg/apis/v1alpha1"
+)
+
+type ContainerOS struct {
+	*Options
+}
+
+func (c *ContainerOS) GetImages(kubernetesVersion, imageVersion string) (Images, error) {
+	images, err := c.ACKProvider.GetSupportedImages(kubernetesVersion)
+	if err != nil {
+		return nil, err
+	}
 	var ret Images
 	for _, im := range images {
-		if !strings.HasPrefix(im.Name, "ContainerOS") {
+		if !strings.HasPrefix(im.ImageName, "ContainerOS") {
 			continue
 		}
-
-		ret = append(ret, im)
+		if image, err := alibabaCloudLinuxResolveImages(im); err == nil {
+			ret = append(ret, image)
+		}
 	}
+	return ret, nil
+}
 
-	return ret
+func (c *ContainerOS) UserData(ctx context.Context, kubeletConfig *v1alpha1.KubeletConfiguration, taints []corev1.Taint, labels map[string]string, customUserData *string) (string, error) {
+	return c.ACKProvider.GetNodeRegisterScript(ctx, labels, taints, kubeletConfig, customUserData)
 }

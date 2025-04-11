@@ -19,6 +19,9 @@ package imagefamily
 import (
 	"context"
 	"fmt"
+	"github.com/samber/lo"
+	corev1 "k8s.io/api/core/v1"
+	karpv1 "sigs.k8s.io/karpenter/pkg/apis/v1"
 	"sync"
 
 	ecs "github.com/alibabacloud-go/ecs-20140526/v4/client"
@@ -33,6 +36,7 @@ import (
 	"sigs.k8s.io/karpenter/pkg/utils/resources"
 
 	"github.com/cloudpilot-ai/karpenter-provider-alibabacloud/pkg/apis/v1alpha1"
+	"github.com/cloudpilot-ai/karpenter-provider-alibabacloud/pkg/providers/cluster"
 	"github.com/cloudpilot-ai/karpenter-provider-alibabacloud/pkg/utils/alierrors"
 )
 
@@ -42,26 +46,9 @@ var DefaultSystemDisk = v1alpha1.SystemDisk{
 	VolumeSize: resources.Quantity("20Gi"),
 }
 
-// Options define the static launch template parameters
+// Options for ImageFamily
 type Options struct {
-	ClusterName     string
-	ClusterEndpoint string
-	// Level-triggered fields that may change out of sync.
-	SecurityGroups []v1alpha1.SecurityGroup
-	Tags           map[string]string
-	Labels         map[string]string `hash:"ignore"`
-	NodeClassName  string
-}
-
-// LaunchTemplate holds the dynamically generated launch template parameters
-type LaunchTemplate struct {
-	*Options
-	UserData      string
-	ImageID       string
-	InstanceTypes []*cloudprovider.InstanceType `hash:"ignore"`
-	SystemDisk    *v1alpha1.SystemDisk
-	CapacityType  string
-	// TODO: need more field, HttpTokens, RamRole, NetworkInterface, DataDisk, ...
+	ACKProvider cluster.Provider
 }
 
 type InstanceTypeAvailableSystemDisk struct {
@@ -92,6 +79,7 @@ func (s *InstanceTypeAvailableSystemDisk) Compatible(systemDisks []string) bool 
 
 type Resolver interface {
 	FilterInstanceTypesBySystemDisk(context.Context, *v1alpha1.ECSNodeClass, []*cloudprovider.InstanceType) []*cloudprovider.InstanceType
+	BuildUserData(context.Context, string, *v1alpha1.ECSNodeClass, *karpv1.NodeClaim, *Options) (string, error)
 }
 
 // DefaultResolver is able to fill-in dynamic launch template parameters
@@ -111,12 +99,14 @@ func NewDefaultResolver(region string, ecsapi *ecs.Client, cache *cache.Cache) *
 	}
 }
 
-func GetImageFamily(family string) ImageFamily {
+func GetImageFamily(family string, options *Options) ImageFamily {
 	switch family {
 	case v1alpha1.ImageFamilyContainerOS:
-		return &ContainerOS{}
+		return &ContainerOS{Options: options}
 	case v1alpha1.ImageFamilyAlibabaCloudLinux3:
-		return &AlibabaCloudLinux3{}
+		return &AlibabaCloudLinux3{Options: options}
+	case v1alpha1.ImageFamilyCustom:
+		return &Custom{Options: options}
 	default:
 		return nil
 	}
@@ -201,4 +191,32 @@ func (r *DefaultResolver) describeAvailableSystemDisk(request *ecs.DescribeAvail
 		}
 	}
 	return nil
+}
+
+func (r *DefaultResolver) BuildUserData(ctx context.Context, capacityType string, nodeClass *v1alpha1.ECSNodeClass, nodeClaim *karpv1.NodeClaim, options *Options) (string, error) {
+	kubeletCfg := resolveKubeletConfiguration(nodeClass)
+	imageFamily := GetImageFamily(nodeClass.ImageFamily(), options)
+	if imageFamily == nil {
+		return "", fmt.Errorf("ImageFamily not found")
+	}
+	labels := lo.Assign(nodeClaim.Labels, map[string]string{karpv1.CapacityTypeLabelKey: capacityType})
+	taints := lo.Flatten([][]corev1.Taint{
+		nodeClaim.Spec.Taints,
+		nodeClaim.Spec.StartupTaints,
+	})
+	if !lo.ContainsBy(taints, func(t corev1.Taint) bool {
+		return t.MatchTaint(&karpv1.UnregisteredNoExecuteTaint)
+	}) {
+		taints = append(taints, karpv1.UnregisteredNoExecuteTaint)
+	}
+	return imageFamily.UserData(ctx, kubeletCfg, taints, labels, nodeClass.Spec.UserData)
+}
+
+func resolveKubeletConfiguration(nodeClass *v1alpha1.ECSNodeClass) *v1alpha1.KubeletConfiguration {
+	kubeletConfig := nodeClass.Spec.KubeletConfiguration
+	if kubeletConfig == nil {
+		kubeletConfig = &v1alpha1.KubeletConfiguration{}
+	}
+
+	return kubeletConfig
 }

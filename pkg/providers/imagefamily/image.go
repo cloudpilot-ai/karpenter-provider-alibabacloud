@@ -19,10 +19,8 @@ package imagefamily
 import (
 	"context"
 	"fmt"
-	"strings"
 	"sync"
 
-	ackclient "github.com/alibabacloud-go/cs-20151215/v5/client"
 	ecs "github.com/alibabacloud-go/ecs-20140526/v4/client"
 	"github.com/alibabacloud-go/tea/tea"
 	"github.com/mitchellh/hashstructure/v2"
@@ -32,6 +30,7 @@ import (
 	"sigs.k8s.io/karpenter/pkg/scheduling"
 
 	"github.com/cloudpilot-ai/karpenter-provider-alibabacloud/pkg/apis/v1alpha1"
+	"github.com/cloudpilot-ai/karpenter-provider-alibabacloud/pkg/providers/cluster"
 	"github.com/cloudpilot-ai/karpenter-provider-alibabacloud/pkg/providers/version"
 )
 
@@ -42,7 +41,7 @@ type Provider interface {
 type DefaultProvider struct {
 	region    string
 	ecsClient *ecs.Client
-	ackClient *ackclient.Client
+	ack       cluster.Provider
 
 	sync.Mutex
 	cache *cache.Cache
@@ -50,12 +49,12 @@ type DefaultProvider struct {
 	versionProvider version.Provider
 }
 
-func NewDefaultProvider(region string, ecsClient *ecs.Client, ackClient *ackclient.Client,
+func NewDefaultProvider(region string, ecsClient *ecs.Client, ackProvider cluster.Provider,
 	versionProvider version.Provider, cache *cache.Cache) *DefaultProvider {
 	return &DefaultProvider{
 		region:    region,
 		ecsClient: ecsClient,
-		ackClient: ackClient,
+		ack:       ackProvider,
 
 		cache:           cache,
 		versionProvider: versionProvider,
@@ -67,11 +66,7 @@ func (p *DefaultProvider) List(ctx context.Context, nodeClass *v1alpha1.ECSNodeC
 	p.Lock()
 	defer p.Unlock()
 
-	k8sVersion, err := p.versionProvider.Get(ctx)
-	if err != nil {
-		return nil, err
-	}
-	images, err := p.GetImages(k8sVersion, nodeClass)
+	images, err := p.getImages(ctx, nodeClass)
 	if err != nil {
 		return nil, err
 	}
@@ -79,8 +74,7 @@ func (p *DefaultProvider) List(ctx context.Context, nodeClass *v1alpha1.ECSNodeC
 	return images, nil
 }
 
-//nolint:gocyclo
-func (p *DefaultProvider) GetImages(k8sVersion string, nodeClass *v1alpha1.ECSNodeClass) (Images, error) {
+func (p *DefaultProvider) getImages(ctx context.Context, nodeClass *v1alpha1.ECSNodeClass) (Images, error) {
 	hash, err := hashstructure.Hash(nodeClass.Spec.ImageSelectorTerms, hashstructure.FormatV2, &hashstructure.HashOptions{SlicesAsSets: true})
 	if err != nil {
 		return nil, err
@@ -91,22 +85,26 @@ func (p *DefaultProvider) GetImages(k8sVersion string, nodeClass *v1alpha1.ECSNo
 		return append(Images{}, images.(Images)...), nil
 	}
 
+	kubernetesVersion, err := p.versionProvider.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
 	images := map[uint64]Image{}
 	for _, selectorTerm := range nodeClass.Spec.ImageSelectorTerms {
 		var ims Images
 		var err error
 		if selectorTerm.Alias != "" {
-			ims, err = p.getImagesWithAlias(k8sVersion)
-			if err != nil {
-				return nil, err
-			}
-			imageFamily := GetImageFamily(selectorTerm.Alias)
+			alias := v1alpha1.NewAlias(selectorTerm.Alias)
+			imageFamily := GetImageFamily(selectorTerm.Alias, &Options{ACKProvider: p.ack})
 			if imageFamily == nil {
 				return nil, fmt.Errorf("unsupported image family %s", selectorTerm.Alias)
 			}
-			ims = imageFamily.ResolveImages(ims)
+			ims, err = imageFamily.GetImages(kubernetesVersion, alias.Version)
+			if err != nil {
+				return nil, err
+			}
 		} else {
-			ims, err = p.getImagesWithID(selectorTerm.ID)
+			ims, err = p.getImagesByID(selectorTerm.ID)
 			if err != nil {
 				return nil, err
 			}
@@ -127,47 +125,7 @@ func (p *DefaultProvider) GetImages(k8sVersion string, nodeClass *v1alpha1.ECSNo
 	return lo.Values(images), nil
 }
 
-//nolint:gocyclo
-func (p *DefaultProvider) getImagesWithAlias(k8sVersion string) (Images, error) {
-	// When query, the api ask to remove v from v1.6.0
-	formatVersion := strings.TrimPrefix(k8sVersion, "v")
-	req := &ackclient.DescribeKubernetesVersionMetadataRequest{
-		Region:            tea.String(p.region),
-		ClusterType:       tea.String("ManagedKubernetes"),
-		KubernetesVersion: tea.String(formatVersion),
-	}
-
-	resp, err := p.ackClient.DescribeKubernetesVersionMetadata(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to describe k8s version metadata %w", err)
-	}
-
-	if resp == nil || resp.Body == nil || len(resp.Body) == 0 {
-		return nil, nil
-	}
-
-	images := Images{}
-	for _, image := range resp.Body[0].Images {
-		imageID := tea.StringValue(image.ImageId)
-		// not support i386
-		arch, ok := v1alpha1.AlibabaCloudToKubeArchitectures[lo.FromPtr(image.Architecture)]
-		if !ok {
-			continue
-		}
-		requirement := scheduling.NewRequirement(
-			corev1.LabelArchStable, corev1.NodeSelectorOpIn, arch)
-
-		images = append(images, Image{
-			Name:         tea.StringValue(image.ImageName),
-			ImageID:      imageID,
-			Requirements: scheduling.NewRequirements(requirement),
-		})
-	}
-
-	return images, nil
-}
-
-func (p *DefaultProvider) getImagesWithID(id string) (Images, error) {
+func (p *DefaultProvider) getImagesByID(id string) (Images, error) {
 	req := &ecs.DescribeImagesRequest{
 		RegionId:    tea.String(p.region),
 		ImageId:     tea.String(id),

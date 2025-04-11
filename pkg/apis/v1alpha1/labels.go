@@ -70,6 +70,7 @@ var (
 	}
 	ImageFamilyAlibabaCloudLinux3                     = "AlibabaCloudLinux3"
 	ImageFamilyContainerOS                            = "ContainerOS"
+	ImageFamilyCustom                                 = "Custom"
 	ECSAMDCPUModelValue                               = "AMD"
 	ECSIntelCPUModelValue                             = "Intel"
 	ResourceNVIDIAGPU             corev1.ResourceName = "nvidia.com/gpu"

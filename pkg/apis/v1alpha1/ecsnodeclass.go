@@ -18,6 +18,8 @@ package v1alpha1
 
 import (
 	"fmt"
+	"log"
+	"strings"
 
 	"github.com/mitchellh/hashstructure/v2"
 	"github.com/samber/lo"
@@ -308,6 +310,7 @@ const (
 func (in *ECSNodeClass) Hash() string {
 	return fmt.Sprint(lo.Must(hashstructure.Hash([]interface{}{
 		in.Spec,
+		in.ImageFamily(),
 	}, hashstructure.FormatV2, &hashstructure.HashOptions{
 		SlicesAsSets:    true,
 		IgnoreZeroValue: true,
@@ -315,15 +318,46 @@ func (in *ECSNodeClass) Hash() string {
 	})))
 }
 
-// ImageFamily If an alias is specified, return alias, or be 'Custom' (enforced via validation).
+// ImageFamily returns the family for a NodePool based on the following items, in order of precdence:
+//   - ecsnodeclass.spec.imageFamily
+//   - ecsnodeclass.spec.imageSelectorTerms[].alias
+//
+// If an alias is specified, ecsnodeclass.spec.imageFamily must match that alias, or be 'Custom' (enforced via validation).
 func (in *ECSNodeClass) ImageFamily() string {
-	if term, ok := lo.Find(in.Spec.ImageSelectorTerms, func(t ImageSelectorTerm) bool {
-		return t.Alias != ""
-	}); ok {
-		return ImageFamilyFromAlias(term.Alias)
+	if alias := in.Alias(); alias != nil {
+		return alias.Family
 	}
-	// Unreachable: validation enforces that one of the above conditions must be met
-	return ""
+	return ImageFamilyCustom
+}
+
+func (in *ECSNodeClass) Alias() *Alias {
+	term, ok := lo.Find(in.Spec.ImageSelectorTerms, func(term ImageSelectorTerm) bool {
+		return term.Alias != ""
+	})
+	if !ok {
+		return nil
+	}
+	return NewAlias(term.Alias)
+}
+
+type Alias struct {
+	Family  string
+	Version string
+}
+
+const (
+	AliasVersionLatest = "latest"
+)
+
+func NewAlias(item string) *Alias {
+	return &Alias{
+		Family:  imageFamilyFromAlias(item),
+		Version: imageVersionFromAlias(item),
+	}
+}
+
+func (a *Alias) String() string {
+	return fmt.Sprintf("%s@%s", a.Family, a.Version)
 }
 
 // ECSNodeClassList contains a list of ECSNodeClass
@@ -334,8 +368,29 @@ type ECSNodeClassList struct {
 	Items           []ECSNodeClass `json:"items"`
 }
 
-func ImageFamilyFromAlias(alias string) string {
-	return alias
+func imageFamilyFromAlias(alias string) string {
+	components := strings.Split(alias, "@")
+	if len(components) > 2 {
+		log.Fatalf("failed to parse Image alias %q, invalid format", alias)
+	}
+	family, ok := lo.Find([]string{
+		ImageFamilyAlibabaCloudLinux3,
+		ImageFamilyContainerOS,
+	}, func(family string) bool {
+		return strings.ToLower(family) == components[0]
+	})
+	if !ok {
+		log.Fatalf("%q is an invalid alias family", components[0])
+	}
+	return family
+}
+
+func imageVersionFromAlias(alias string) string {
+	components := strings.Split(alias, "@")
+	if len(components) != 2 {
+		return AliasVersionLatest
+	}
+	return components[1]
 }
 
 func (sd *SystemDisk) GetGiBSize() int32 {
