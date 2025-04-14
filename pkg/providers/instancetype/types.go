@@ -119,8 +119,12 @@ func NewInstanceType(ctx context.Context,
 		Offerings:    offerings,
 		Capacity:     computeCapacity(ctx, info, kc.MaxPods, kc.PodsPerCore, systemDisk, clusterCNI),
 		Overhead: &cloudprovider.InstanceTypeOverhead{
-			KubeReserved:      corev1.ResourceList{},
-			SystemReserved:    corev1.ResourceList{},
+			KubeReserved: corev1.ResourceList{
+				// todo
+			},
+			SystemReserved: corev1.ResourceList{
+				// todo
+			},
 			EvictionThreshold: corev1.ResourceList{},
 		},
 	}
