@@ -49,6 +49,9 @@ jobs:
 
       - name: Build and publish image
         run: |
+          git fetch --tags
+          git checkout ${{ env.tag }}
+          
           export KO_DOCKER_REPO=cloudpilotai-registry.cn-hangzhou.cr.aliyuncs.com/cloudpilotai/karpenter-provider-alibabacloud
           export IMAGE_TAG=${{ env.tag }}
           ko build --bare github.com/cloudpilot-ai/karpenter-provider-alibabacloud/cmd/controller -t $IMAGE_TAG
