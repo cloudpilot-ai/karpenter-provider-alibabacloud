@@ -37,7 +37,7 @@ func (i *Image) Reconcile(ctx context.Context, nodeClass *v1alpha1.ECSNodeClass)
 	images, err := i.imageProvider.List(ctx, nodeClass)
 	if err != nil {
 		log.FromContext(ctx).Error(err, "failed to list images")
-		return reconcile.Result{}, err
+		return reconcile.Result{RequeueAfter: time.Second * 30}, err
 	}
 
 	if len(images) == 0 {
