@@ -68,9 +68,12 @@ type Provider interface {
 }
 
 type DefaultProvider struct {
-	ecsClient            *ecsclient.Client
-	region               string
-	instanceCache        *cache.Cache
+	ecsClient *ecsclient.Client
+	region    string
+
+	lastUpdateTime time.Time
+	instanceCache  *cache.Cache
+
 	unavailableOfferings *kcache.UnavailableOfferings
 
 	imageFamilyResolver imagefamily.Resolver
@@ -154,7 +157,8 @@ func (p *DefaultProvider) list(ctx context.Context) ([]*Instance, error) {
 				Value: tea.String("owned"),
 			},
 		},
-		RegionId: tea.String(p.region),
+		RegionId:   tea.String(p.region),
+		MaxResults: tea.Int32(100),
 	}
 
 	runtime := &util.RuntimeOptions{}
@@ -189,11 +193,19 @@ func (p *DefaultProvider) list(ctx context.Context) ([]*Instance, error) {
 }
 
 func (p *DefaultProvider) List(ctx context.Context) ([]*Instance, error) {
+	if time.Since(p.lastUpdateTime) < instanceCacheExpiration {
+		items := p.instanceCache.Items()
+		return lo.Map(lo.Values(items), func(item cache.Item, _ int) *Instance {
+			return item.Object.(*Instance)
+		}), nil
+	}
+
 	instances, err := p.list(ctx)
 	if err != nil {
 		return nil, err
 	}
 	p.syncAllInstances(instances)
+	p.lastUpdateTime = time.Now()
 
 	return instances, nil
 }
@@ -259,7 +271,7 @@ func (p *DefaultProvider) CreateTags(ctx context.Context, id string, tags map[st
 		return fmt.Errorf("tagging instance, %w", err)
 	}
 
-	instances, err := p.list(ctx)
+	instances, err := p.List(ctx)
 	if err != nil {
 		return err
 	}
