@@ -37,7 +37,7 @@ type VSwitch struct {
 func (v *VSwitch) Reconcile(ctx context.Context, nodeClass *v1alpha1.ECSNodeClass) (reconcile.Result, error) {
 	vSwitches, err := v.vSwitchProvider.List(ctx, nodeClass)
 	if err != nil {
-		return reconcile.Result{}, fmt.Errorf("getting vSwitches, %w", err)
+		return reconcile.Result{RequeueAfter: time.Second * 30}, fmt.Errorf("getting vSwitches, %w", err)
 	}
 	if len(vSwitches) == 0 {
 		nodeClass.Status.VSwitches = nil

@@ -104,11 +104,11 @@ func (c *Controller) Reconcile(ctx context.Context, nodeClass *v1alpha1.ECSNodeC
 			errs = multierr.Append(errs, client.IgnoreNotFound(err))
 		}
 	}
-
-	if errs != nil {
-		return reconcile.Result{}, errs
+	if result.Min(results...).RequeueAfter > 0 {
+		return result.Min(results...), nil
 	}
-	return result.Min(results...), nil
+
+	return reconcile.Result{}, errs
 }
 
 func (c *Controller) Register(_ context.Context, m manager.Manager) error {
