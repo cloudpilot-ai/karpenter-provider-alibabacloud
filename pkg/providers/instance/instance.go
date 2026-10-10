@@ -517,6 +517,12 @@ func (p *DefaultProvider) getProvisioningGroup(ctx context.Context, nodeClass *v
 
 		vSwitchID := p.getVSwitchID(instanceType, zonalVSwitchs, requirements, capacityType, nodeClass.Spec.VSwitchSelectionPolicy)
 		if vSwitchID == "" {
+			// The instance type has no available offering compatible with the requirements in a zone with a
+			// resolved vswitch, so it can't be part of the provisioning request.
+			log.FromContext(ctx).V(1).Info("skipping instance type, no vswitch with a compatible available offering",
+				"instance-type", instanceType.Name,
+				"capacity-type", capacityType,
+				"zone", requirements.Get(corev1.LabelTopologyZone).String())
 			continue
 		}
 
@@ -639,35 +645,30 @@ func (p *DefaultProvider) checkODFallback(nodeClaim *karpv1.NodeClaim, instanceT
 func (p *DefaultProvider) getVSwitchID(instanceType *cloudprovider.InstanceType,
 	zonalVSwitchs map[string]*vswitch.VSwitch, reqs scheduling.Requirements, capacityType string, vSwitchSelectionPolicy string,
 ) string {
-	cheapestVSwitchID := ""
-	cheapestPrice := math.MaxFloat64
+	// Only consider offerings that are available, compatible with the nodeclaim requirements (zone,
+	// capacity-type, etc.), and whose zone has a resolved vswitch.
+	offerings := lo.Filter(instanceType.Offerings.Available().Compatible(reqs), func(o cloudprovider.Offering, _ int) bool {
+		_, ok := zonalVSwitchs[o.Requirements.Get(corev1.LabelTopologyZone).Any()]
+		return ok
+	})
+	if len(offerings) == 0 {
+		return ""
+	}
 
+	// For on-demand or the balanced policy, randomly select a vswitch among the compatible zones to spread
+	// launches across zones. The requirements pin the capacity type, so each zone has at most one candidate
+	// offering and picking an offering is equivalent to picking a zone.
 	if capacityType == karpv1.CapacityTypeOnDemand || vSwitchSelectionPolicy == v1alpha1.VSwitchSelectionPolicyBalanced {
-		// For on-demand, randomly select a zone's vswitch
-		zoneIDs := lo.Keys(zonalVSwitchs)
-		if len(zoneIDs) > 0 {
-			randomIndex, _ := rand.Int(rand.Reader, big.NewInt(int64(len(zoneIDs))))
-			return zonalVSwitchs[zoneIDs[randomIndex.Int64()]].ID
+		randomIndex, err := rand.Int(rand.Reader, big.NewInt(int64(len(offerings))))
+		if err != nil {
+			randomIndex = big.NewInt(0)
 		}
+		return zonalVSwitchs[offerings[randomIndex.Int64()].Requirements.Get(corev1.LabelTopologyZone).Any()].ID
 	}
 
 	// For different AZ, the spot price may differ. So we need to get the cheapest vSwitch in the zone
-	for i := range instanceType.Offerings {
-		if reqs.Compatible(instanceType.Offerings[i].Requirements, scheduling.AllowUndefinedWellKnownLabels) != nil {
-			continue
-		}
-
-		vswitch, ok := zonalVSwitchs[instanceType.Offerings[i].Requirements.Get(corev1.LabelTopologyZone).Any()]
-		if !ok {
-			continue
-		}
-		if instanceType.Offerings[i].Price < cheapestPrice {
-			cheapestVSwitchID = vswitch.ID
-			cheapestPrice = instanceType.Offerings[i].Price
-		}
-	}
-
-	return cheapestVSwitchID
+	cheapest := offerings.Cheapest()
+	return zonalVSwitchs[cheapest.Requirements.Get(corev1.LabelTopologyZone).Any()].ID
 }
 
 func (p *DefaultProvider) syncAllInstances(instances []*Instance) {
