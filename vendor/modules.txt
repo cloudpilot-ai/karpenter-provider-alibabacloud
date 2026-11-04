@@ -59,9 +59,6 @@ github.com/awslabs/operatorpkg/status
 # github.com/beorn7/perks v1.0.1
 ## explicit; go 1.11
 github.com/beorn7/perks/quantile
-# github.com/blendle/zapdriver v1.3.1
-## explicit; go 1.12
-github.com/blendle/zapdriver
 # github.com/cespare/xxhash/v2 v2.3.0
 ## explicit; go 1.11
 github.com/cespare/xxhash/v2
@@ -79,6 +76,8 @@ github.com/davecgh/go-spew/spew
 ## explicit; go 1.13
 github.com/emicklei/go-restful/v3
 github.com/emicklei/go-restful/v3/log
+# github.com/evanphx/json-patch v5.9.0+incompatible
+## explicit
 # github.com/evanphx/json-patch/v5 v5.9.11
 ## explicit; go 1.18
 github.com/evanphx/json-patch/v5
@@ -849,11 +848,6 @@ k8s.io/utils/net
 k8s.io/utils/pointer
 k8s.io/utils/ptr
 k8s.io/utils/trace
-# knative.dev/pkg v0.0.0-20250128013458-efddeac3ec35
-## explicit; go 1.22.7
-knative.dev/pkg/changeset
-knative.dev/pkg/logging
-knative.dev/pkg/logging/logkey
 # sigs.k8s.io/controller-runtime v0.20.1
 ## explicit; go 1.23.0
 sigs.k8s.io/controller-runtime
