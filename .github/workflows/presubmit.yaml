@@ -1,55 +1,50 @@
 name: Pre-submit check
-
-on:
+'on':
   push:
-    branches: [ "main" ]
+    branches:
+    - main
+    - ci-cache-trial/go-cache-20261106
   pull_request: {}
-
 permissions:
   contents: read
   pull-requests: read
-
 jobs:
   presubmit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: true
+    - uses: actions/checkout@v4
+      with:
+        submodules: true
+    - name: Restore Go CI cache
+      id: setup-go
+      uses: cloudx-io/setup-go@0bbd76c0381c065220668df9b6694845b937aaa0
+      with:
+        go-version: '1.25'
+        cache-key-prefix: ${{ github.job }}
+        cache-dependency-path: '**/go.*'
+        save: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/ci-cache-trial/go-cache-20261106') }}
+    - name: Install toolchain
+      env:
+        GOTOOLCHAIN: auto
+      run: 'make toolchain
 
-      - name: Restore Go CI cache
-        id: setup-go
-        uses: cloudx-io/setup-go@0bbd76c0381c065220668df9b6694845b937aaa0 # main: restore-only support
-        with:
-          go-version: "1.25"
-          cache-key-prefix: ${{ github.job }}
-          cache-dependency-path: '**/go.*'
-          save: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        '
+    - name: Restore lint analysis cache
+      id: lint-cache
+      uses: actions/cache/restore@v4
+      with:
+        path: ${{ runner.temp }}/golangci-lint
+        key: lint-v1.64.8-go-${{ runner.os }}-${{ runner.arch }}-1.25-${{ hashFiles('**/go.*', '**/vendor/modules.txt') }}-${{ hashFiles('.golangci*') }}-${{ github.sha }}
+        restore-keys: lint-v1.64.8-go-${{ runner.os }}-${{ runner.arch }}-1.25-${{ hashFiles('**/go.*', '**/vendor/modules.txt') }}-${{ hashFiles('.golangci*') }}-
+    - name: Presubmit check
+      env:
+        GOLANGCI_LINT_CACHE: ${{ runner.temp }}/golangci-lint
+      run: 'make presubmit
 
-      - name: Install toolchain
-        env:
-          # setup-go v7 disables automatic toolchain selection by default.
-          GOTOOLCHAIN: auto
-        run: |
-          make toolchain
-
-      - name: Restore lint analysis cache
-        id: lint-cache
-        uses: actions/cache/restore@v4
-        with:
-          path: ${{ runner.temp }}/golangci-lint
-          key: lint-v1.64.8-go-${{ runner.os }}-${{ runner.arch }}-1.25-${{ hashFiles('**/go.*', '**/vendor/modules.txt') }}-${{ hashFiles('.golangci*') }}-${{ github.sha }}
-          restore-keys: lint-v1.64.8-go-${{ runner.os }}-${{ runner.arch }}-1.25-${{ hashFiles('**/go.*', '**/vendor/modules.txt') }}-${{ hashFiles('.golangci*') }}-
-
-      - name: Presubmit check
-        env:
-          GOLANGCI_LINT_CACHE: ${{ runner.temp }}/golangci-lint
-        run: |
-          make presubmit
-
-      - name: Save lint analysis cache
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.lint-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: ${{ runner.temp }}/golangci-lint
-          key: ${{ steps.lint-cache.outputs.cache-primary-key }}
+        '
+    - name: Save lint analysis cache
+      if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/ci-cache-trial/go-cache-20261106') && steps.lint-cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: ${{ runner.temp }}/golangci-lint
+        key: ${{ steps.lint-cache.outputs.cache-primary-key }}
